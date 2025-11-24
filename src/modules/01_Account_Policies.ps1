@@ -1,0 +1,327 @@
+# 01_Account_Policies.ps1
+# Handles User Passwords, Group Memberships, and Account Controls
+
+param(
+    [string]$LogFile
+)
+
+# Import helper functions if running standalone (optional check)
+if (-not (Get-Command Write-Log -ErrorAction SilentlyContinue)) {
+    . "$PSScriptRoot/../functions/Write-Log.ps1"
+}
+if (-not (Get-Command New-RandomPassword -ErrorAction SilentlyContinue)) {
+    . "$PSScriptRoot/../functions/New-RandomPassword.ps1"
+}
+
+Write-Log -Message "Starting Account Policies Hardening..." -Level "INFO" -LogFile $LogFile
+
+# Check if we are on a Domain Controller
+if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType='2'") {
+    
+    # --- 1. Domain User Password Rotation ---
+    Write-Log -Message "Rotating Domain User Passwords..." -Level "INFO" -LogFile $LogFile
+    
+    try {
+        Import-Module ActiveDirectory -ErrorAction Stop
+        
+        $excludedGroups = @("Domain Admins", "Enterprise Admins")
+        $excludedUsers = foreach ($group in $excludedGroups) {
+            Get-ADGroupMember -Identity $group -Recursive | Select-Object -ExpandProperty SamAccountName
+        }
+        $excludedUsers = $excludedUsers | Select-Object -Unique
+        $excludedUsers += @("Administrator", "krbtgt", "Guest", "DefaultAccount")
+        
+        $users = Get-ADUser -Filter * | Where-Object {
+            ($_.SamAccountName -notin $excludedUsers)
+        }
+
+        $GroupUserMap = @{}
+
+        foreach ($user in $users) {
+            try {
+                $newPassword    = New-RandomPassword -Length 12
+                $securePassword = ConvertTo-SecureString -String $newPassword -AsPlainText -Force
+                Set-ADAccountPassword -Identity $user.SamAccountName -NewPassword $securePassword -Reset
+                
+                Write-Log -Message "Password changed for user: $($user.SamAccountName)" -Level "SUCCESS" -LogFile $LogFile
+                Write-Host "$($user.SamAccountName),$newPassword" # Output for operator visibility
+                
+                # Track group membership for reporting
+                $usersgroups = Get-ADPrincipalGroupMembership -Identity $user | Select-Object -ExpandProperty Name
+                if ($usersgroups) {
+                    foreach ($groupName in $usersgroups) {
+                        if(!($GroupUserMap.ContainsKey($groupName))) {
+                            $GroupUserMap[$groupName] = New-Object System.Collections.ArrayList
+                        }
+                        $null = $GroupUserMap[$groupName].Add([PSCustomObject]@{
+                            User     = $user.SamAccountName
+                            Password = $newPassword
+                        })
+                    }
+                }
+            } 
+            catch {
+                Write-Log -Message "Failed to set password for user $($user.SamAccountName): $_" -Level "ERROR" -LogFile $LogFile
+            }
+        }
+    }
+    catch {
+        Write-Log -Message "Failed to load ActiveDirectory module or query users: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # --- 2. Privileged Group Cleanup ---
+    Write-Log -Message "Cleaning up Privileged Groups..." -Level "INFO" -LogFile $LogFile
+    $groups = @("Domain Admins", "Enterprise Admins", "Administrators", "DnsAdmins", "Group Policy Creator Owners", "Schema Admins", "Key Admins", "Enterprise Key Admins")
+
+    foreach ($group in $groups) {
+        $excludedSamAccountNames = @("Administrator", "Domain Admins", "Enterprise Admins") # Keep these safe
+
+        try {
+            $members = Get-ADGroupMember -Identity $group -ErrorAction SilentlyContinue | Where-Object {
+                $excludedSamAccountNames -notcontains $_.SamAccountName
+            }
+
+            foreach ($member in $members) {
+                try {
+                    Remove-ADGroupMember -Identity $group -Members $member -Confirm:$false
+                    Write-Log -Message "Removed $($member.SamAccountName) from $group." -Level "SUCCESS" -LogFile $LogFile
+                }
+                catch {
+                    Write-Log -Message "Failed to remove group member $($member.SamAccountName) from $group." -Level "ERROR" -LogFile $LogFile
+                }
+            }
+        } catch {
+            Write-Log -Message "Group $group not found or error accessing it." -Level "WARNING" -LogFile $LogFile
+        }
+    }
+
+    # --- 3. Kerberos Pre-authentication ---
+    Write-Log -Message "Enabling Kerberos Pre-authentication..." -Level "INFO" -LogFile $LogFile
+    try {
+        Get-ADUser -Filter {DoesNotRequirePreAuth -eq $true} | Set-ADAccountControl -DoesNotRequirePreAuth $false
+        Write-Log -Message "Kerberos Pre-authentication enabled for applicable users." -Level "SUCCESS" -LogFile $LogFile
+    }
+    catch {
+        Write-Log -Message "Failed to enable Kerberos Pre-authentication: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # --- 4. Disable Guest Account ---
+    Write-Log -Message "Disabling Guest Account..." -Level "INFO" -LogFile $LogFile
+    try {
+        $guestAccount = Get-ADUser -Identity "Guest" -ErrorAction Stop
+        Disable-ADAccount -Identity $guestAccount.SamAccountName
+        Write-Log -Message "Guest account has been disabled." -Level "SUCCESS" -LogFile $LogFile
+    }
+    catch {
+        Write-Log -Message "Failed to disable Guest account." -Level "ERROR" -LogFile $LogFile
+    }
+
+    # --- 5. noPac Mitigation (MachineAccountQuota) ---
+    Write-Log -Message "Setting ms-DS-MachineAccountQuota to 0..." -Level "INFO" -LogFile $LogFile
+    try {
+        Set-ADDomain -Identity $env:USERDNSDOMAIN -Replace @{"ms-DS-MachineAccountQuota" = "0" } | Out-Null
+        Write-Log -Message "ms-DS-MachineAccountQuota set to 0." -Level "SUCCESS" -LogFile $LogFile
+    }
+    catch {
+        Write-Log -Message "Failed to apply noPac mitigation: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # --- 6. Administrator Password Policy ---
+    Write-Log -Message "Enforcing Password Policy for Administrator..." -Level "INFO" -LogFile $LogFile
+    try {
+        $adminUser = Get-ADUser -Identity "Administrator" -Properties PasswordNeverExpires
+        if ($adminUser.PasswordNeverExpires -eq $true) {
+            Set-ADUser -Identity "Administrator" -PasswordNeverExpires $false
+            Write-Log -Message "PasswordNeverExpires set to false for Administrator." -Level "SUCCESS" -LogFile $LogFile
+        } else {
+            Write-Log -Message "Administrator already has PasswordNeverExpires set to false." -Level "INFO" -LogFile $LogFile
+        }
+    }
+    catch {
+        Write-Log -Message "Failed to update Administrator password policy: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # --- 7. Account Cleanup & Hardening (Extended) ---
+    Write-Log -Message "Starting Extended Account Cleanup & Hardening..." -Level "INFO" -LogFile $LogFile
+    
+    # Unlock all accounts
+    try {
+        Get-ADUser -Filter * | Unlock-ADAccount -ErrorAction SilentlyContinue
+        Write-Log -Message "Unlocked all AD accounts." -Level "SUCCESS" -LogFile $LogFile
+    } catch {
+        Write-Log -Message "Failed to unlock accounts: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # Set Primary Group to Domain Users
+    try {
+        $domainUsersGroup = Get-ADGroup "Domain Users" -Properties primaryGroupToken
+        if ($domainUsersGroup) {
+            Get-ADUser -Filter * | ForEach-Object {
+                Set-ADUser $_ -Replace @{primaryGroupID=$domainUsersGroup.primaryGroupToken} -ErrorAction SilentlyContinue
+            }
+            Write-Log -Message "Set Primary Group to 'Domain Users' for all users." -Level "SUCCESS" -LogFile $LogFile
+        }
+    } catch {
+        Write-Log -Message "Failed to set primary group: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # Clear ManagedBy Delegations
+    try {
+        Get-ADComputer -Filter * | Set-ADComputer -Clear ManagedBy -ErrorAction SilentlyContinue
+        Get-ADDomain | Set-ADDomain -Clear ManagedBy -ErrorAction SilentlyContinue
+        Get-ADOrganizationalUnit -Filter * | Set-ADOrganizationalUnit -Clear ManagedBy -ErrorAction SilentlyContinue
+        Get-ADGroup -Filter * | Set-ADGroup -Clear ManagedBy -ErrorAction SilentlyContinue
+        Write-Log -Message "Cleared 'ManagedBy' attribute from all objects." -Level "SUCCESS" -LogFile $LogFile
+    } catch {
+        Write-Log -Message "Failed to clear ManagedBy: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # Reset ACLs on Common Objects (Aggressive)
+    Write-Log -Message "Resetting ACLs on Domains, Computers, Users, Groups (Aggressive)..." -Level "INFO" -LogFile $LogFile
+    try {
+        # Helper to reset ACLs using dsacls
+        function Reset-DACL {
+            param($DistinguishedName)
+            $null = dsacls "$DistinguishedName" /resetDefaultDACL /resetDefaultSACL 2>&1
+        }
+
+        Get-ADDomain | ForEach-Object {
+            Reset-DACL $_.DistinguishedName
+            Reset-DACL "CN=Builtin,$($_.DistinguishedName)"
+            Reset-DACL "$($_.ComputersContainer)"
+            Reset-DACL "$($_.DomainControllersContainer)"
+            Reset-DACL "$($_.UsersContainer)"
+            Reset-DACL "$($_.SystemsContainer)"
+        }
+        Get-ADComputer -Filter * | ForEach-Object { Reset-DACL $_.DistinguishedName }
+        Get-ADUser -Filter * | ForEach-Object { Reset-DACL $_.DistinguishedName }
+        Get-ADGroup -Filter * | ForEach-Object { Reset-DACL $_.DistinguishedName }
+        
+        Write-Log -Message "Reset Default DACLs/SACLs on AD objects." -Level "SUCCESS" -LogFile $LogFile
+    } catch {
+        Write-Log -Message "Failed to reset ACLs: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # Mark non-DC computers as not trusted for delegation
+    try {
+        $dcs = Get-ADDomainController | Select-Object -ExpandProperty Name
+        Get-ADComputer -Filter {TrustedForDelegation -eq $true} | ForEach-Object {
+            if ($_.Name -notin $dcs) {
+                Set-ADComputer $_ -TrustedForDelegation $false
+                Write-Log -Message "Removed TrustedForDelegation from computer: $($_.Name)" -Level "SUCCESS" -LogFile $LogFile
+            }
+        }
+    } catch {
+        Write-Log -Message "Failed to check delegation trust: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # Delete fake computer accounts (No OS defined)
+    try {
+        Get-ADComputer -Filter * -Properties OperatingSystem | Where-Object { -not $_.OperatingSystem } | Remove-ADComputer -Confirm:$false -ErrorAction SilentlyContinue
+        Write-Log -Message "Deleted computer accounts with no Operating System defined." -Level "SUCCESS" -LogFile $LogFile
+    } catch {
+        Write-Log -Message "Failed to delete fake computers: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # User Property Hardening (AES256, No Delegation, etc.)
+    Write-Log -Message "Hardening User Properties (AES256, No Delegation)..." -Level "INFO" -LogFile $LogFile
+    try {
+        $currentUser = $env:USERNAME
+        Get-ADUser -Filter * | Where-Object { $_.SamAccountName -ne $currentUser -and $_.SamAccountName -ne "krbtgt" } | ForEach-Object {
+            Set-ADUser $_ -TrustedForDelegation $false `
+                          -AllowReversiblePasswordEncryption $false `
+                          -CannotChangePassword $false `
+                          -ChangePasswordAtLogon $false `
+                          -CompoundIdentitySupported $true `
+                          -KerberosEncryptionType AES256 `
+                          -PasswordNeverExpires $false `
+                          -PasswordNotRequired $false `
+                          -SmartcardLogonRequired $false `
+                          -AccountNotDelegated $true `
+                          -Clear scriptPath `
+                          -ErrorAction SilentlyContinue
+            
+            Set-ADAccountControl $_ -DoesNotRequirePreAuth $false `
+                                    -AllowReversiblePasswordEncryption $false `
+                                    -TrustedForDelegation $false `
+                                    -TrustedToAuthForDelegation $false `
+                                    -UseDESKeyOnly $false `
+                                    -AccountNotDelegated $true `
+                                    -ErrorAction SilentlyContinue
+        }
+        Write-Log -Message "User properties hardened." -Level "SUCCESS" -LogFile $LogFile
+    } catch {
+        Write-Log -Message "Failed to harden user properties: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # Clear SID History & SPNs
+    try {
+        Get-ADUser -Filter {SIDHistory -like "*"} | Set-ADUser -Clear SIDHistory
+        Get-ADGroup -Filter {SIDHistory -like "*"} | Set-ADGroup -Clear SIDHistory
+        Write-Log -Message "Cleared SIDHistory from Users and Groups." -Level "SUCCESS" -LogFile $LogFile
+    } catch {
+        Write-Log -Message "Failed to clear SIDHistory: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # Mitigate RID Hijacking (ResetData)
+    try {
+        $usersKey = "HKLM:\SAM\SAM\Domains\Account\Users"
+        if (Test-Path $usersKey) {
+            Get-ChildItem $usersKey | ForEach-Object {
+                $name = $_.PSChildName
+                if ((Get-ItemProperty -Path "$usersKey\$name").ResetData) {
+                    Remove-ItemProperty -Path "$usersKey\$name" -Name "ResetData" -Force -ErrorAction SilentlyContinue
+                }
+            }
+            Write-Log -Message "Removed ResetData registry keys (RID Hijacking mitigation)." -Level "SUCCESS" -LogFile $LogFile
+        }
+    } catch {
+        Write-Log -Message "Failed to mitigate RID Hijacking: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # --- 10. AdminSDHolder ACL Reset (Hardened SDDL) ---
+    Write-Log -Message "Resetting AdminSDHolder ACL to hardened defaults..." -Level "INFO" -LogFile $LogFile
+    try {
+        $osVersion = (Get-CimInstance Win32_OperatingSystem).Version
+        $is2019 = $osVersion -like "10.0.17763*"
+        $is2022 = $osVersion -like "10.0.20348*"
+        
+        # SDDLs from legacy script
+        $server19ACL = "O:DAG:DAD:PAI(A;;LCRPLORC;;;AU)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;SY)(A;;CCDCLCSWRPWPLOCRSDRCWDWO;;;BA)(A;;CCDCLCSWRPWPLOCRRCWDWO;;;DA)(A;;CCDCLCSWRPWPLOCRRCWDWO;;;S-1-5-21-501019241-1888531994-2123242318-519)(OA;;CR;ab721a53-1e2f-11d0-9819-00aa0040529b;;WD)(OA;CI;RPWPCR;91e647de-d96f-4b70-9557-d63ff4f3ccd8;;PS)(OA;;CR;ab721a53-1e2f-11d0-9819-00aa0040529b;;PS)(OA;;RP;4c164200-20c0-11d0-a768-00aa006e0529;bf967aba-0de6-11d0-a285-00aa003049e2;RU)(OA;;RP;5f202010-79a5-11d0-9020-00c04fc2d4cf;bf967aba-0de6-11d0-a285-00aa003049e2;RU)(OA;;LCRPLORC;;bf967aba-0de6-11d0-a285-00aa003049e2;RU)(OA;;RP;bc0ac240-79a9-11d0-9020-00c04fc2d4cf;bf967aba-0de6-11d0-a285-00aa003049e2;RU)(OA;;RP;037088f8-0ae1-11d2-b422-00a0c968f939;bf967aba-0de6-11d0-a285-00aa003049e2;RU)(OA;;RP;037088f8-0ae1-11d2-b422-00a0c968f939;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;RP;59ba2f42-79a2-11d0-9020-00c04fc2d3cf;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;RP;bc0ac240-79a9-11d0-9020-00c04fc2d4cf;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;RP;4c164200-20c0-11d0-a768-00aa006e0529;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;RP;5f202010-79a5-11d0-9020-00c04fc2d4cf;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;LCRPLORC;;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;RP;46a9b11d-60ae-405a-b7e8-ff8a58d456d2;;S-1-5-32-560)(OA;;RPWP;6db69a1c-9422-11d1-aebd-0000f80367c1;;S-1-5-32-561)(OA;;RPWP;5805bc62-bdc9-4428-a5e2-856a0f4c185e;;S-1-5-32-561)(OA;;RPWP;bf967a7f-0de6-11d0-a285-00aa003049e2;;CA)"
+        $server22ACL = "O:DAG:DAD:PAI(A;;LCRPLORC;;;AU)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;SY)(A;;CCDCLCSWRPWPLOCRSDRCWDWO;;;BA)(A;;CCDCLCSWRPWPLOCRRCWDWO;;;DA)(A;;CCDCLCSWRPWPLOCRRCWDWO;;;S-1-5-21-3344319829-3580194437-357835383-519)(OA;;CR;ab721a53-1e2f-11d0-9819-00aa0040529b;;WD)(OA;CI;RPWPCR;91e647de-d96f-4b70-9557-d63ff4f3ccd8;;PS)(OA;;CR;ab721a53-1e2f-11d0-9819-00aa0040529b;;PS)(OA;;RP;4c164200-20c0-11d0-a768-00aa006e0529;bf967aba-0de6-11d0-a285-00aa003049e2;RU)(OA;;RP;5f202010-79a5-11d0-9020-00c04fc2d4cf;bf967aba-0de6-11d0-a285-00aa003049e2;RU)(OA;;LCRPLORC;;bf967aba-0de6-11d0-a285-00aa003049e2;RU)(OA;;RP;bc0ac240-79a9-11d0-9020-00c04fc2d4cf;bf967aba-0de6-11d0-a285-00aa003049e2;RU)(OA;;RP;037088f8-0ae1-11d2-b422-00a0c968f939;bf967aba-0de6-11d0-a285-00aa003049e2;RU)(OA;;RP;037088f8-0ae1-11d2-b422-00a0c968f939;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;RP;59ba2f42-79a2-11d0-9020-00c04fc2d3cf;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;RP;bc0ac240-79a9-11d0-9020-00c04fc2d4cf;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;RP;4c164200-20c0-11d0-a768-00aa006e0529;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;RP;5f202010-79a5-11d0-9020-00c04fc2d4cf;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;LCRPLORC;;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;RP;46a9b11d-60ae-405a-b7e8-ff8a58d456d2;;S-1-5-32-560)(OA;;RPWP;6db69a1c-9422-11d1-aebd-0000f80367c1;;S-1-5-32-561)(OA;;RPWP;5805bc62-bdc9-4428-a5e2-856a0f4c185e;;S-1-5-32-561)(OA;;RPWP;bf967a7f-0de6-11d0-a285-00aa003049e2;;CA)"
+
+        $targetSDDL = $null
+        if ($is2019) {
+            $targetSDDL = $server19ACL
+            Write-Log -Message "Detected Server 2019. Using 2019 SDDL." -Level "INFO" -LogFile $LogFile
+        } elseif ($is2022) {
+            $targetSDDL = $server22ACL
+            Write-Log -Message "Detected Server 2022. Using 2022 SDDL." -Level "INFO" -LogFile $LogFile
+        } else {
+            Write-Log -Message "OS Version $osVersion not explicitly matched to 2019/2022. Skipping AdminSDHolder SDDL reset to avoid breakage." -Level "WARNING" -LogFile $LogFile
+        }
+
+        if ($targetSDDL) {
+            $adminSDHolderPath = "AD:CN=AdminSDHolder,CN=System,$((Get-ADRootDSE).rootDomainNamingContext)"
+            $acl = Get-Acl -Path $adminSDHolderPath
+            $acl.SetSecurityDescriptorSddlForm($targetSDDL)
+            Set-Acl -Path $adminSDHolderPath -AclObject $acl
+            Write-Log -Message "AdminSDHolder ACL reset to hardened SDDL." -Level "SUCCESS" -LogFile $LogFile
+        }
+    } catch {
+        Write-Log -Message "Failed to reset AdminSDHolder ACL: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # --- 11. Require DC Authentication (ForceUnlockLogon) ---
+    Write-Log -Message "Configuring ForceUnlockLogon..." -Level "INFO" -LogFile $LogFile
+    try {
+        Set-RegistryValue -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "ForceUnlockLogon" -Value 1 -Type DWord
+        Write-Log -Message "ForceUnlockLogon set to 1." -Level "SUCCESS" -LogFile $LogFile
+    } catch {
+        Write-Log -Message "Failed to set ForceUnlockLogon: $_" -Level "ERROR" -LogFile $LogFile
+    }
+}
+
+} else {
+    Write-Log -Message "Not a Domain Controller. Skipping AD Account Policies." -Level "WARNING" -LogFile $LogFile
+}
