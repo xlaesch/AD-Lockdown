@@ -1,0 +1,677 @@
+# version 3 of https://stigviewer.com/stig/active_directory_domain/
+version: 1
+name: "Active Directory Configuration"
+vulnerabilities:
+  - cid: C-S-AD-01
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Membership to the Enterprise Admins group must be restricted to accounts used only to manage the Active Directory Forest.
+    fix:
+      - fix_type: manual
+        steps: "Create the necessary documentation that identifies the members of the Enterprise Admins group. Ensure that each member has a separate unique account that can only be used to manage the Active Directory Forest. Remove any Enterprise Admin accounts from other administrator groups."
+    references:
+      cis:
+        id: "V-243466"
+        category: CAT I
+    notes: "The Enterprise Admins group is a highly privileged group. Personnel who are system administrators must log on to Active Directory systems only using accounts with the level of authority necessary. Only system administrator accounts used exclusively to manage the Active Directory Forest may be members of the Enterprise Admins group. A separation of administrator responsibilities helps mitigate the risk of privilege escalation resulting from credential theft attacks."
+
+  - cid: C-S-AD-02
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Membership to the Domain Admins group must be restricted to accounts used only to manage the Active Directory domain and domain controllers.
+    fix:
+      - fix_type: manual
+        steps: "Create the necessary documentation that identifies the members of the Domain Admins group. Ensure that each member has a separate unique account that can only be used to manage the Active Directory domain and domain controllers. Remove any Domain Admin accounts from other administrator groups."
+    references:
+      cis:
+        id: "V-243467"
+        category: CAT I
+    notes: "The Domain Admins group is a highly privileged group. Personnel who are system administrators must log on to Active Directory systems only using accounts with the level of authority necessary. Only system administrator accounts used exclusively to manage an Active Directory domain and domain controllers may be members of the Domain Admins group. A separation of administrator responsibilities helps mitigate the risk of privilege escalation resulting from credential theft attacks."
+
+  - cid: C-S-AD-03
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Delegation of privileged accounts must be prohibited.
+    fix:
+      - fix_type: manual
+        steps: "Create the necessary documentation that identifies the members of the Domain Admins group. Ensure that each member has a separate unique account that can only be used to manage the Active Directory domain and domain controllers. Remove any Domain Admin accounts from other administrator groups."
+    references:
+      cis:
+        id: "V-243470"
+        category: CAT I
+    notes: "Privileged accounts such as those belonging to any of the administrator groups must not be trusted for delegation. Allowing privileged accounts to be trusted for delegation provides a means for privilege escalation from a compromised system."
+
+  - cid: C-S-AD-04
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Interconnections between DoD directory services of different classification levels must use a cross-domain solution that is approved for use with inter-classification trusts.
+    fix:
+      - fix_type: manual
+        steps: "Delete the trust relationship that is defined between entities with resources at different DoD classification levels."
+    references:
+      cis:
+        id: "V-243482"
+        category: CAT I
+    notes: "If a robust cross-domain solution is not used, then it could permit unauthorized access to classified data. To support secure access between resources of different classification levels, the solution must meet discretionary access control requirements. There are currently, no DOD- approved solutions. Further Policy Details: Do not define trust relationships between domains, forests, or realms with resources at different classification levels. The configuration of a trust relationship is one of the steps used to allow users in one AD domain to access resources in another domain, forest, or Kerberos realm. (This check does not apply to trusts with non-DoD organizations since these trusts are examined in a previous check.)"
+
+  - cid: C-S-AD-05
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: A controlled interface must have interconnections among DoD information systems operating between DoD and non-DoD systems or networks.
+    fix:
+      - fix_type: manual
+        steps: "Obtain DAA approval and document external, forest, or realm trust relationship. Or obtain documentation of the network connection approval and explicit trust approval by the DAA."
+    references:
+      cis:
+        id: "V-243483"
+        category: CAT I
+    notes: "The configuration of an AD trust relationship is one of the steps used to allow users in one domain to access resources in another domain, forest, or Kerberos realm. When a trust is defined between a DoD organization and a non-DoD organization, the security posture of the two organizations might be significantly different. If the non-DoD organization maintained a less secure environment and that environment were compromised, the presence of the AD trust might allow the DoD environment to be compromised also."
+
+  - cid: C-S-AD-06
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Administrators must have separate accounts specifically for managing domain member servers.
+    fix:
+      - fix_type: manual
+        steps: "Create the necessary documentation that identifies the members of domain member server administrator groups. Ensure that each member has a separate unique account that can only be used to manage domain member servers. Remove any domain member server accounts from other administrator groups."
+    references:
+      cis:
+        id: "V-243468"
+        category: CAT II
+    notes: "Personnel who are system administrators must log on to domain systems only using accounts with the minimum level of authority necessary. Only system administrator accounts used exclusively to manage domain member servers may be members of an administrator group for domain member servers. A separation of administrator responsibilities helps mitigate the risk of privilege escalation resulting from credential theft attacks."
+
+  - cid: C-S-AD-07
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Administrators must have separate accounts specifically for managing domain workstations.
+
+    fix:
+      - fix_type: manual
+        steps: "Create the necessary documentation that identifies the members of domain workstation administrator groups. Ensure that each member has a separate unique account that can only be used to manage domain workstations. Remove any domain workstation administrator accounts from other administrator groups."
+    references:
+      cis:
+        id: "V-243469"
+        category: CAT II
+    notes: "Personnel who are system administrators must log on to domain systems only using accounts with the minimum level of authority necessary. Only system administrator accounts used exclusively to manage domain workstations may be members of an administrators group for domain workstations. A separation of administrator responsibilities helps mitigate the risk of privilege escalation resulting from credential theft attacks."
+
+  - cid: C-S-AD-08
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: If a VPN is used in the AD implementation, the traffic must be inspected by the network Intrusion detection system (IDS).
+    fix:
+      - fix_type: manual
+        steps: "Replace the VPN solution or reconfigure it so that directory data is inspected by a network or host-based IDS."
+    references:
+      cis:
+        id: "V-243498"
+        category: CAT II
+    notes: "To provide data confidentiality, a VPN is configured to encrypt the data being transported. While this protects the data, some implementations do not allow that data to be processed through an intrusion detection system (IDS) that could detect data from a compromised system or malicious client. Further policy details:Replace the VPN solution or reconfigure it so that directory data is processed by a network or host-based intrusion detection system (IDS)."
+
+  - cid: C-S-AD-09
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Inter-site replication must be enabled and configured to occur at least daily.
+    fix:
+      - fix_type: manual
+        steps: |
+          Maintain an Active Directory replication schedule that allows inter-site replication to occur at least on a daily basis.
+          Open "Active Directory Sites and Services". (Available from various menus or run "dssite.msc".)
+          Expand "Sites" in the left pane.
+          Expand "Inter-Site Transports" and select "IP".
+          For each site link that is defined in the right pane perform the following:
+          Right click the site link item and select "Properties". 
+          Select an interval in the "Replicate every" field less than "1440". (By default this is 180.)
+          Click the Change Schedule button.
+          Select time frames for "Replication Available" to allow for replication to occur at least daily.
+    references:
+      cis:
+        id: "V-243497"
+        category: CAT II
+    notes: "Timely replication makes certain that directory service data is consistent across all servers that support the same scope of data for their clients. In AD implementation using AD Sites, domain controllers defined to be in different AD Sites require Site links to specify properties for replication scheduling. If AD Site link schedule and replication interval properties are configured improperly, AD data replication may not occur frequently enough and updates to identification, authentication, or authorization data may not be current on all domain controllers. If this data is not current, access to resources may be incorrectly granted or denied. The default for inter-site replication is to occur every 180 minutes, 24 hours a day."
+
+  - cid: C-S-AD-10
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Accounts from outside directories that are not part of the same organization or are not subject to the same security policies must be removed from all highly privileged groups.
+    fix:
+      - fix_type: manual
+        steps: "Remove accounts from outside directories that are not part of the same organization or are not subject to the same security policies from the highly privileged groups. "
+    references:
+      cis:
+        id: "V-243496"
+        category: CAT II
+    notes: "Membership in certain default directory groups assigns a high privilege level for access to the directory. In AD, membership in the following groups enables high privileges relative to AD and the Windows OS: Domain Admins, Enterprise Admins, Schema Admins, Group Policy Creator Owners, and Incoming Forest Trust Builders. When accounts from an outside directory are members of highly privileged groups in the directory being reviewed, less rigorous security policies or compromises of accounts in the outside directory could increase the risk to the directory where the privileged groups are defined. A compromise to the outside directory would allow unauthorized, privileged access."
+
+  - cid: C-S-AD-11
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: A VPN must be used to protect directory network traffic for directory service implementation spanning enclave boundaries.
+    fix:
+      - fix_type: manual
+        steps: "Implement a VPN or other network protection solution in accordance with the Network Infrastructure STIG that protects AD data in transit across DoD enclave boundaries."
+    references:
+      cis:
+        id: "V-243495"
+        category: CAT II
+    notes: "The normal operation of AD requires the use of IP network ports and protocols to support queries, replication, user authentication, and resource authorization services. At a minimum, LDAP or LDAPS is usually required for communication with every domain controller. DoD Ports, Protocols, and Services Management (PPSM) policy restricts the use of LDAP, LDAPS, and many of the AD-related protocols across enclave boundaries because vulnerabilities exist in the protocols or service implementations. To comply with the restrictions and address the vulnerabilities, a VPN implementation may be used. If AD data traverses enclave network boundaries using a vulnerable protocol or service without the protection provided by a VPN, that data might be subject to tampering or interception. Further Policy Details: Implement a VPN or other network protection solution in accordance with the Network Infrastructure STIG that protects AD data in transit across DoD enclave boundaries. VPN requirements will include registering the VPN and connection points with the PPSM. Current guidance is available in the Network Infrastructure STIG and from the PPSM."
+
+  - cid: C-S-AD-12
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Active Directory data must be backed up daily for systems with a Risk Management Framework categorization for Availability of moderate or high. Systems with a categorization of low must be backed up weekly.
+    fix:
+      - fix_type: manual
+        steps: |
+          Update the organization's procedures for the backing up active directory data.
+          Ensure the frequency at which active directory data is backed up is as follows:
+          If the Availability categorization of the domain is low, this must be at least weekly.
+          If the Availability categorization of the domain is moderate or high, this must be at least daily.
+          Ensure the type of backup is appropriate to capturing the directory data. For AD domain controllers, this must include a System State data backup.
+    references:
+      cis:
+        id: "V-243493"
+        category: CAT II
+    notes: "Failure to maintain a current backup of directory data could make it difficult or impossible to recover from incidents including hardware failure or malicious corruption. A failure to recover from the loss of directory data used in identification and authentication services (i.e., Active Directory) could result in an extended loss of availability."
+
+  - cid: C-S-AD-13
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Systems must be monitored for remote desktop logons.
+    fix:
+      - fix_type: manual
+        steps: |
+          More advanced filtering is necessary to obtain the pertinent information than just looking for event IDs.
+          Search for the event IDs listed with the following additional attributes:
+          Logon Type = 10 (RemoteInteractive)
+          Authentication Package Name = Negotiate
+
+          Successful User Account Login (Subcategory: Logon)
+          4624 - An account was successfully logged on.
+
+          The "Remote Desktop Logon Detection" section of NSA's "Spotting the Adversary with Windows Event Log Monitoring" provides a sample query for filtering.
+          https://www.iad.gov/iad/library/reports/spotting-the-adversary-with-windows-event-log-monitoring.cfm.
+    references:
+      cis:
+        id: "V-243492"
+        category: CAT II
+    notes: "Remote Desktop activity for administration should be limited to specific administrators, and from limited management workstations. Monitoring for any Remote Desktop logins outside of expected activity can alert on suspicious behavior and anomalous account usage that could be indicative of potential malicious credential reuse."
+
+  - cid: C-S-AD-14
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Systems must be monitored for attempts to use local accounts to log on remotely from other systems.
+    fix:
+      - fix_type: manual
+        steps: |
+          Monitor for attempts to use local accounts to log on remotely from other systems. Event monitoring may be implemented through various methods including log aggregation and the use of monitoring tools.
+
+          Monitor for the events listed below.
+
+          More advanced filtering is necessary to obtain the pertinent information than just looking for event IDs.
+          Search for the event IDs listed with the following additional attributes:
+          Logon Type = 3 (Network)
+          Authentication Package Name = NTLM
+          Not a domain logon and not the ANONYMOUS LOGON account
+
+          Successful User Account Login (Subcategory: Logon)
+          4624 - An account was successfully logged on.
+          Failed User Account Login (Subcategory: Logon)
+          4625 - An account failed to log on.
+
+          The "Pass the Hash Detection" section of NSA's "Spotting the Adversary with Windows Event Log Monitoring" provides a sample query for filtering.
+          https://www.iad.gov/iad/library/reports/spotting-the-adversary-with-windows-event-log-monitoring.cfm.
+    references:
+      cis:
+        id: "V-243491"
+        category: CAT II
+    notes: "Monitoring for the use of local accounts to log on remotely from other systems may indicate attempted lateral movement in a Pass-the-Hash attack."
+
+  - cid: C-S-AD-15
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Usage of administrative accounts must be monitored for suspicious and anomalous activity.
+    fix:
+      - fix_type: manual
+        steps: |
+          Monitor account usage events for administrative accounts. This includes events related to approved administrative accounts as well as accounts being added to privileged groups such as Administrators, Domain and Enterprise Admins and other organization defined administrative groups. Event monitoring may be implemented through various methods including log aggregation and the use of monitoring tools.
+
+          Monitor for the events listed below, at minimum.
+
+          Account Lockouts (Subcategory: User Account Management)
+          4740 - A user account is locked out.
+          User Added to Privileged Group (Subcategory: Security Group Management)
+          4728 - A member was added to a security-enabled global group.
+          4732 - A member was added to a security-enabled local group.
+          4756 - A member was added to a security-enabled universal group.
+          Successful User Account Login (Subcategory: Logon)
+          4624 - An account was successfully logged on.
+          Failed User Account Login (Subcategory: Logon)
+          4625 - An account failed to log on.
+          Account Login with Explicit Credentials (Subcategory: Logon)
+          4648 - A logon was attempted using explicit credentials.
+
+          The "Account Usage" section of NSA's "Spotting the Adversary with Windows Event Log Monitoring" provides additional information.
+          https://www.iad.gov/iad/library/reports/spotting-the-adversary-with-windows-event-log-monitoring.cfm.
+    references:
+      cis:
+        id: "V-243490"
+        category: CAT II
+    notes: "Monitoring the usage of administrative accounts can alert on suspicious behavior and anomalous account usage that would be indicative of potential malicious credential reuse."
+
+  - cid: C-S-AD-16
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Local administrator accounts on domain systems must not share the same password.
+    fix:
+      - fix_type: manual
+        steps: |
+          Set unique passwords for all local administrator accounts on domain systems. 
+
+          It is highly recommended to use Microsoft's LAPS, which provides an automated solution for maintaining and regularly changing a local administrator password for domain-joined systems. If additional local administrator accounts exist across systems, the organization must have a process to require unique passwords on each system for the additional accounts.
+
+          The AO may approve other automated solutions that provide this capability.
+
+          See Microsoft Security Advisory 3062591 for additional information and download of LAPS.
+          https://www.microsoft.com/en-us/download/details.aspx?id=46899
+    references:
+      cis:
+        id: "V-243471"
+        category: CAT II
+    notes: "Local administrator accounts on domain systems must use unique passwords. In the event a domain system is compromised, sharing the same password for local administrator accounts on domain systems will allow an attacker to move laterally and compromise multiple domain systems."
+
+  - cid: C-S-AD-17
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Separate domain accounts must be used to manage public facing servers from any domain accounts used to manage internal servers.
+    fix:
+      - fix_type: manual
+        steps: |
+          If the domain does not have any public facing servers, this is NA.
+
+          Configure the system to include only administrator groups or accounts that are responsible for the system in the local Administrators group.
+
+          For public facing servers, replace the Domain Admins group with a domain member server administrator group whose members are different from any used to manage internal servers.
+    references:
+      cis:
+        id: "V-243473"
+        category: CAT II
+    notes: "Public facing servers should be in DMZs with separate Active Directory forests. If, because of operational necessity, this is not possible, lateral movement from these servers must be mitigated within the forest. Having different domain accounts for administering domain joined public facing servers, from domain accounts used on internal servers, protects against an attacker's lateral movement from a compromised public facing server."
+
+  - cid: C-S-AD-18
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Separate smart cards must be used for Enterprise Admin (EA) and Domain Admin (DA) accounts from smart cards used for other accounts.
+    fix:
+      - fix_type: manual
+        steps: "Use separate smart cards for EA and DA accounts from smart cards used for other accounts. EA and DA accounts may be on the same smart card but must be separate from any other accounts."
+    references:
+      cis:
+        id: "V-243472"
+        category: CAT II
+    notes: "A separate smart card for Enterprise Admin and Domain Admin accounts eliminates the automatic exposure of the private keys for the EA/DA accounts to less secure user platforms when the other accounts are used. Having different certificates on one card does not provide the necessary separation. The same smart card may be used by an administrator for both EA and DA accounts."
+
+  - cid: C-S-AD-19
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Domain controllers must be blocked from Internet access.
+    fix:
+      - fix_type: manual
+        steps: |
+          Block domain controllers from internet access. This can be accomplished with various methods, such as restrictions at boundary firewalls, proxy services, host based firewalls, or IPsec. 
+
+          If a critical function requires Internet access, this must be documented and approved by the organization.
+    references:
+      cis:
+        id: "V-243475"
+        category: CAT II
+    notes: "Domain controllers provide access to highly privileged areas of a domain. Such systems with Internet access may be exposed to numerous attacks and compromise the domain. Restricting Internet access for domain controllers will aid in protecting these privileged areas from being compromised."
+
+  - cid: C-S-AD-20
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Windows service \ application accounts with administrative privileges and manually managed passwords, must have passwords changed at least every 60 days.
+    fix:
+      - fix_type: manual
+        steps: |
+          If no Windows service \ application accounts with manually managed passwords have administrative privileges, this is NA.
+
+          Change passwords for Windows service \ application accounts with administrative privileges and manually managed passwords, at least every 60 days.
+    references:
+      cis:
+        id: "V-243474"
+        category: CAT II
+    notes: 'NT hashes of passwords for accounts that are not changed regularly are susceptible to reuse by attackers using Pass-the-Hash. Windows service \ application account passwords are not typically changed for longer periods of time to ensure availability of the applications. If a service \ application also has administrative privileges it will provide elevated access if compromised.'
+
+  - cid: C-S-AD-21
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: User accounts with domain level administrative privileges must be members of the Protected Users group in domains with a domain functional level of Windows 2012 R2 or higher.
+    fix:
+      - fix_type: manual
+        steps: |
+          Add user accounts from the local domain that are members of the domain level administrative groups listed below to the Protected Users group. One account may excluded to ensure availability if there are issues with Kerberos.
+
+          Enterprise Admins (Users node)
+          Domain Admins (Users node)
+          Schema Admins (Users node)
+          Administrators (Builtin node)
+          Account Operators (Builtin node)
+          Backup Operators (Builtin node)
+
+          The use of the Protected Users group should be thoroughly tested before fully implementing.
+    references:
+      cis:
+        id: "V-243477"
+        category: CAT II
+    notes: "User accounts with domain level administrative privileges are highly prized in Pass-the-Hash/credential theft attacks. The Protected Users group provides extra protections to accounts such as preventing authentication using NTLM. These accounts include Enterprise and Domain Admins as well as other accounts that may have domain level privileges. The Protected Users group requires a domain functional level of at least Windows 2012 R2 to provide domain level protections."
+
+  - cid: C-S-AD-22
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: All accounts, privileged and unprivileged, that require smart cards must have the underlying NT hash rotated at least every 60 days.
+    fix:
+      - fix_type: manual
+        steps: |
+          Windows Server 2016 with domain functional levels of Windows Server 2016:
+
+          Open "Active Directory Administrative Center".
+
+          Right-click on the domain name and select "Properties".
+
+          Select "Enable rolling of expiring NTLM secrets during sign on, for users who are required to use Microsoft Passport or smart card for interactive sign on".
+
+          Active Directory domains not at a Windows Server 2016 domain functional level:
+
+          Rotate the NT hash for smart card-enforced accounts every 60 days.
+
+          This can be accomplished with the use of scripts. 
+
+          DoD PKI-PKE has provided a script under PKI and PKE Tools at http://iase.disa.mil/pki-pke/Pages/tools.aspx. See the User Guide for additional information.
+
+          NSA has also provided a PowerShell script with Pass-the-Hash guidance at https://github.com/iadgov/Pass-the-Hash-Guidance. Running the "Invoke-SmartcardHashRefresh" cmdlet in the "PtHTools" module will trigger a change of the underlying NT hash. See the site for additional information.
+
+          Manually rolling the NT hash requires disabling and re-enabling the "Smart Card required for interactive logon" option for each smart card-enforced account, which is not practical for large groups of users.
+    references:
+      cis:
+        id: "V-243476"
+        category: CAT II
+    notes: 'When a smart card is required for a domain account, a long password, unknown to the user, is generated. This password and associated NT hash are not changed as are accounts with passwords controlled by the maximum password age. Disabling and re-enabling the "Smart card is required for interactive logon" (SCRIL) replaces the NT hash of the account with a newly randomized hash. Otherwise, the existing NT hash could be reused for Pass-the-Hash in the future. Windows Server 2016 includes a built-in feature for SCRIL hash rolling that will automatically reset NT hashes in accordance with the existing maximum password age policy. This requires the domain functional level to be Windows Server 2016. In Active Directory with a domain functional level below Windows Server 2016, scripts can be used to reset the NT hashes of all domain accounts. Associated documentation should be reviewed for potential issues.'
+
+  - cid: C-S-AD-23
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: The Directory Service Restore Mode (DSRM) password must be changed at least annually.
+    fix:
+      - fix_type: manual
+        steps: "Change the DSRM password at least annually."
+    references:
+      cis:
+        id: "V-243479"
+        category: CAT II
+    notes: "The Directory Service Restore Mode (DSRM) password, used to log on to a domain controller (DC) when rebooting into the server recovery mode, is very powerful. With a weak or known password, someone with local access to the DC can reboot the server and copy or modify the Active Directory database without leaving any trace of the activity. Failure to change the DSRM password periodically could allow compromised of the Active Directory. It could also allow an unknown (lost) password to go undetected. If not corrected during a periodic review, the problem might surface during an actual recovery operation and delay or prevent the recovery."
+
+  - cid: C-S-AD-24
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Domain-joined systems (excluding domain controllers) must not be configured for unconstrained delegation.
+    fix:
+      - fix_type: manual
+        steps: |
+          Remove unconstrained delegation from computers in the domain. 
+
+          Select "Properties" for the computer object.
+
+          Select the "Delegation" tab.
+
+          De-select "Trust this computer for delegation to any service (Kerberos only)"
+
+          Configured constrained delegation for specific services where required.
+    references:
+      cis:
+        id: "V-243478"
+        category: CAT II
+    notes: "Unconstrained delegation enabled on a computer can allow the computer account to be impersonated without limitation. If delegation is required, it must be limited/constrained to the specific services and accounts required."
+
+  - cid: C-S-AD-25
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Read-only Domain Controller (RODC) architecture and configuration must comply with directory services requirements.
+    fix:
+      - fix_type: manual
+        steps: |
+          1. Ensure compliance with VPN and IPSec requirements in the Network Insfrastucture STIG. 
+
+          2. Ensure IPSec and other communications and security configurations for the management and replication of the RODC uses the minimum required Group Policy Objects (GPOs) to provide the required functionality.
+
+          3. Replicate only the information needed to provide the functionality required. If full replication of all directory data is not needed, then replicated selective ID and authentication information as needed to the RODC.
+
+          4. Include an inspection of the RODC server in the DMZ when inspection for least privilege.
+    references:
+      cis:
+        id: "V-243489"
+        category: CAT II
+    notes: "The RODC role provides a unidirectional replication method for selected information from your internal network to the DMZ. If not properly configured so that the risk footprint is minimized, the interal domain controller or forest can be compromised. RODC is considered part of the site's Forest or Domain installation since it is not a standalone product, but rather a role of the the Windows AD DS full installation or Server Core installation. It is possible to have Windows 2003 clients authenticated using RODC, however, compatibility packs are needed. Note that RODC is not authorized for use across the site's perimeter firewall."
+
+  - cid: C-S-AD-26
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Security identifiers (SIDs) must be configured to use only authentication data of directly trusted external or forest trust.
+    fix:
+      - fix_type: manual
+        steps: |
+          Ensure SID filtering is enabled on all external trusts. You can enable SID filtering only from the trusting side of the trust. Enter the following line from a command line:
+
+          netdom trust /d: /quarantine:Yes
+          /usero: /passwordo:
+
+          Ensure SID history is disabled for all forest trusts. You can disable SID history only from the trusting side of the trust. Enter the following line from a command line:
+
+          netdom trust /d: /enablesidhistory:No
+          /usero: /passwordo:
+    references:
+      cis:
+        id: "V-243484"
+        category: CAT II
+    notes: "Under some circumstances it is possible for attackers or rogue administrators that have compromised a domain controller in a trusted domain to use the SID history attribute (sIDHistory) to associate SIDs with new user accounts, granting themselves unauthorized rights. To help prevent this type of attack, SID filter quarantining is enabled by default on all external trusts. However, it is possible for an administrator to change this setting or the trust may have been created in an older version of AD. SID filtering causes SID references that do not refer to the directly trusted domain or forest to be removed from inbound access requests in the trusting domain. Without SID filtering, access requests could contain spoofed SIDs, permitting unauthorized access. In cases where access depends on SID history or Universal Groups, failure to enable SID filtering could result in operational problems, including denial of access to authorized users. When the quarantine switch is applied to external or forest trusts, only those SIDs from the single, directly trusted domain are valid. In effect, enabling /quarantine on a trust relationship will break the transitivity of that trust so that only the specific domains on either side of the trust are considered participants in the trust."
+
+  - cid: C-S-AD-27
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Selective Authentication must be enabled on outgoing forest trusts.
+    fix:
+      - fix_type: manual
+        steps: |
+          Enable Selective Authentication on outgoing forest trust. 
+          Open "Active Directory Domains and Trusts". (Available from various menus or run "domain.msc".)
+          Right click the domain name in the left pane and select "Properties".
+          Select the "Trusts" tab.
+          For each outgoing forest trust, right-click the trust item and select "Properties". 
+          Select the "Authentication" tab. 
+          Select the "Selective Authentication" option.
+          (It may be necessary to configure the "Allowed to Authenticate" permission on resources in the trusting domain.)
+    references:
+      cis:
+        id: "V-243485"
+        category: STIG
+    notes: "Enabling Selective Authentication on outbound Active Directory (AD) forest trusts significantly strengthens access control by requiring explicit authorization (through the Allowed to Authenticate permission) on resources in the trusting forest. When Selective Authentication is not enabled, less secure resource access permissions (such as those that specify Authenticated Users) might permit unauthorized access."
+
+  - cid: C-S-AD-28
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: The Anonymous Logon and Everyone groups must not be members of the Pre-Windows 2000 Compatible Access group.
+    fix:
+      - fix_type: manual
+        steps: |
+          Ensure the "Anonymous Logon" and "Everyone" groups are not members of the "Pre-Windows 2000 Compatible Access group". (By default, these groups are not included in current Windows versions.)
+
+          Open "Active Directory Users and Computers" (available from various menus or run "dsa.msc").
+          Expand the domain being reviewed in the left pane and select the "Builtin" container.
+          Double-click on the "Pre-Windows 2000 Compatible Access" group in the right pane.
+          Select the "Members" tab.
+          If the "Anonymous Logon" or "Everyone" groups are members, select each and click "Remove".
+    references:
+      cis:
+        id: "V-243486"
+        category: STIG
+    notes: "The Pre-Windows 2000 Compatible Access group was created to allow Windows NT domains to interoperate with AD domains by allowing unauthenticated access to certain AD data. The default permissions on many AD objects are set to allow access to the Pre-Windows 2000 Compatible Access group. When the Anonymous Logon or Everyone groups are members of the Pre-Windows 2000 Compatible Access group, anonymous access to many AD objects is enabled. Anonymous access to AD data could provide valuable account or configuration information to an intruder trying to determine the most effective attack strategies."
+
+  - cid: C-S-AD-29
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Membership in the Group Policy Creator Owners and Incoming Forest Trust Builders groups must be limited.
+    fix:
+      - fix_type: manual
+        steps: "Document membership of the Group Policy Creator Owners and Incoming Forest Trust Builders groups. Remove any accounts that do not require the privileges these groups assign."
+    references:
+      cis:
+        id: "V-243487"
+        category: CAT II
+    notes: "Membership in the Group Policy Creator Owners and Incoming Forest Trust Builders groups assigns a high privilege level for AD functions. Unnecessary membership increases the risk from compromise or unintended updates. Members of these groups must specifically require those privileges and be documented."
+
+  - cid: C-S-AD-30
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: The domain functional level must be at a Windows Server version still supported by Microsoft.
+    fix:
+      - fix_type: manual
+        steps: |
+          Raise the domain functional level to Windows Server 2008 or later. Using the highest domain functional level supported by the domain controllers is recommended.
+
+          Raising the domain functional level needs to be carefully planned and implemented. This prevents the addition of domain controllers to the domain using Windows versions prior to the current domain functional level. 
+
+          See Microsoft documentation for the process and requirements of raising the domain functional level.
+    references:
+      cis:
+        id: "V-243480"
+        category: CAT II
+    notes: "Domains operating at functional levels below Windows Server versions no longer supported by Microsoft reduce the level of security in the domain and forest as advanced features of the directory are not available. This also prevents the addition of domain controllers to the domain using Windows Server versions prior to the current domain functional level."
+
+  - cid: C-S-AD-31
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Access to need-to-know information must be restricted to an authorized community of interest.
+    fix:
+      - fix_type: manual
+        steps: "Delete the unneeded trust relationship or document the access requirement or mission need for the trust."
+    references:
+      cis:
+        id: "V-243481"
+        category: CAT II
+    notes: "Because trust relationships effectively eliminate a level of authentication in the trusting domain or forest, they represent less stringent access control at the domain or forest level in which the resource resides. To mitigate this risk, trust relationships must be documented so that they can be readily verified during periodic inspections designed to validate only approved trusts are configured in AD."
+
+  - cid: C-S-AD-32
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Active Directory must be supported by multiple domain controllers where the Risk Management Framework categorization for Availability is moderate or high.
+    fix:
+      - fix_type: manual
+        steps: "In Active Directory (AD) architecture, multiple domain controllers provide availability through redundancy. If an AD domain or servers within it have an Availability categorization of medium or high and the domain is supported by only a single domain controller, an outage of that machine can prevent users from accessing resources on servers in that domain and in other AD domains."
+    references:
+      cis:
+        id: "V-243500"
+        category: CAT II
+    notes: "Implement multiple domain controllers in domains with an Availability categorization of moderate or high."
+
+  - cid: C-S-AD-33
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Active Directory implementation information must be added to the organization contingency plan where the Risk Management Framework categorization for Availability is moderate or high.
+    fix:
+      - fix_type: manual
+        steps: "Update the disaster recovery plans to include the AD hierarchy structure for domains with an Availability categorization of moderate or high."
+    references:
+      cis:
+        id: "V-243499"
+        category: CAT III
+    notes: "When an incident occurs that requires multiple Active Directory (AD) domain controllers to be rebuilt, it is critical to understand the AD hierarchy and replication flow so that the correct recovery sequence and configuration values can be selected. Without appropriate AD forest, tree and domain structural documentation, it may be impossible or very time consuming to reconstruct the original configuration."
+
+  - cid: C-S-AD-34
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: Each cross-directory authentication configuration must be documented.
+    fix:
+      - fix_type: manual
+        steps: |
+          Develop documentation for each AD external, forest, and realm trust configuration. At a minimum this must include:
+          Type (external, forest, or realm)
+          Name of the other party
+          Confidentiality, Availability, and Integrity categorization
+          Classification level of the other party
+          Trust direction (inbound and/or outbound)
+          Transitivity
+          Status of the Selective Authentication option
+          Status of the SID filtering option
+    references:
+      cis:
+        id: "V-243494"
+        category: CAT III
+    notes: "Active Directory (AD) external, forest, and realm trust configurations are designed to extend resource access to a wider range of users (those in other directories). If specific baseline documentation of authorized AD external, forest, and realm trust configurations is not maintained, it is impossible to determine if the configurations are consistent with the intended security policy."
+
+  - cid: C-S-AD-35
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: User accounts with delegated authority must be removed from Windows built-in administrative groups or remove the delegated authority from the accounts.
+    fix:
+      - fix_type: manual
+        steps: |
+          1. Remove user accounts with delegated authority from Windows built-in administrative groups or remove the delegated authority from the accounts. 
+          2. Document all user accounts with delegated AD object ownership or update authority. 
+          3. Annotate the account list with a statement such as, "The high number of privileged accounts is required to address site operational requirements."
+          4. Reduce the number of user accounts with delegated AD object ownership or update authority.
+    references:
+      cis:
+        id: "V-243488"
+        category: CAT III
+    notes: "In AD it is possible to delegate account and other AD object ownership and administration tasks. (This is commonly done for help desk or other user support staff.) This is done to avoid the need to assign users to Windows groups with more widely ranging privileges. If a user with delegated authority to user accounts in a specific OU is also a member of the Administrators group, that user has the ability to reconfigure a wide range of domain security settings and change user accounts outside of the OU to which s/he is a delegated authority. A lack of specific baseline documentation of accounts with delegated privileges makes it impossible to determine if the configured privileges are consistent with the intended security policy."
+
+  - cid: C-S-AD-36
+    operating_systems:
+      - Windows Server
+    category: Active Directory Domain Security Technical Implementation Guide
+    policy: The impact of INFOCON changes on the cross-directory authentication configuration must be considered and procedures documented.
+    fix:
+      - fix_type: manual
+        steps: |
+          Evaluate cross-directory configurations (such as trusts and pass-through authentication) and provide documentation that indicates: 
+          1. That an evaluation was performed. 
+          2. The specific AD trust configurations, if any, that should be disabled during changes in INFOCON status because they could represent increased risk.
+    references:
+      cis:
+        id: "V-243501"
+        category: CAT III
+    notes: "When incidents occur that require a change in the INFOCON status, it may be necessary to take action to restrict or disable certain types of access that is based on a directory outside the Component's control. Cross-directory configurations (such as trusts and pass-through authentication) are specifically designed to enable resource access across directories. If conditions indicate that an outside directory is at increased risk of compromise in the immediate or near future, actions to avoid a spread of the effects of the compromise should be taken. A trusted outside directory that is compromised could allow an unauthorized user to access resources in the trusting directory."
