@@ -8,7 +8,9 @@
 #>
 
 param (
-    [string]$ConfigFile = "conf/defaults.json"
+    [string]$ConfigFile = "conf/defaults.json",
+    [string[]]$IncludeModule,
+    [switch]$All
 )
 
 $ScriptRoot = $PSScriptRoot
@@ -27,8 +29,8 @@ if (-not (Test-Path $LogDir)) {
 
 Write-Log -Message "=== Starting AD Hardening Process ===" -Level "INFO" -LogFile $LogFile
 
-# Define Modules to Run
-$Modules = @(
+# Define Available Modules
+$AvailableModules = @(
     "01_Account_Policies.ps1",
     "02_Network_Security.ps1",
     "03_Service_Hardening.ps1",
@@ -37,7 +39,50 @@ $Modules = @(
     "06_Firewall_Hardening.ps1"
 )
 
-foreach ($Module in $Modules) {
+$ModulesToExecute = @()
+
+if ($All) {
+    $ModulesToExecute = $AvailableModules
+}
+elseif ($IncludeModule) {
+    foreach ($m in $IncludeModule) {
+        $match = $AvailableModules | Where-Object { $_ -like "*$m*" }
+        if ($match) {
+            $ModulesToExecute += $match
+        } else {
+            Write-Warning "Module '$m' not found."
+        }
+    }
+}
+else {
+    # Interactive Menu
+    Write-Host "Select modules to run (comma-separated numbers, or 'all'):" -ForegroundColor Cyan
+    for ($i = 0; $i -lt $AvailableModules.Count; $i++) {
+        Write-Host "[$($i+1)] $($AvailableModules[$i])"
+    }
+    
+    $selection = Read-Host "Selection"
+    if ($selection -eq "all") {
+        $ModulesToExecute = $AvailableModules
+    } else {
+        $indices = $selection -split ","
+        foreach ($index in $indices) {
+            if ($index -match "^\d+$" -and [int]$index -le $AvailableModules.Count -and [int]$index -gt 0) {
+                $ModulesToExecute += $AvailableModules[[int]$index - 1]
+            }
+        }
+    }
+}
+
+# Remove duplicates
+$ModulesToExecute = $ModulesToExecute | Select-Object -Unique
+
+if ($ModulesToExecute.Count -eq 0) {
+    Write-Warning "No modules selected. Exiting."
+    exit
+}
+
+foreach ($Module in $ModulesToExecute) {
     $ModulePath = "$ScriptRoot/src/modules/$Module"
     if (Test-Path $ModulePath) {
         Write-Log -Message "Executing module: $Module" -Level "INFO" -LogFile $LogFile
