@@ -120,4 +120,17 @@ if (-not $isDC) {
     Add-FirewallRule -DisplayName "DNS to DC" -Direction "Outbound" -Protocol "UDP" -RemotePort "53" -RemoteAddress "LocalSubnet"
 }
 
+# --- 5. Block Script Engines Outbound ---
+Write-Log -Message "Blocking Script Engines Outbound..." -Level "INFO" -LogFile $LogFile
+$scriptEngines = @("powershell.exe", "powershell_ise.exe", "cscript.exe", "wscript.exe", "cmd.exe")
+foreach ($engine in $scriptEngines) {
+    try {
+        New-NetFirewallRule -DisplayName "Block Outbound $engine" -Direction Outbound -Program "%SystemRoot%\System32\$engine" -Action Block -Profile Any -ErrorAction SilentlyContinue | Out-Null
+        New-NetFirewallRule -DisplayName "Block Outbound $engine (SysWOW64)" -Direction Outbound -Program "%SystemRoot%\SysWOW64\$engine" -Action Block -Profile Any -ErrorAction SilentlyContinue | Out-Null
+        Write-Log -Message "Blocked outbound traffic for $engine" -Level "SUCCESS" -LogFile $LogFile
+    } catch {
+        Write-Log -Message "Failed to block $engine: $_" -Level "WARNING" -LogFile $LogFile
+    }
+}
+
 Write-Log -Message "Firewall Hardening Complete." -Level "SUCCESS" -LogFile $LogFile

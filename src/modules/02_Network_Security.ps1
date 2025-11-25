@@ -46,8 +46,8 @@ try {
 
     # Restrict Null Session Access
     Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters" -Name "RestrictNullSessAccess" -Value 1 -Type DWord
-    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" -Name "NullSessionPipes" -Value @() -Force
-    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" -Name "NullSessionShares" -Value @() -Force
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" -Name "NullSessionPipes" -Value ([string[]]@()) -Force
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" -Name "NullSessionShares" -Value ([string[]]@()) -Force
 
     # Disable SMB Admin Shares
     Set-RegistryValue -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters" -Name "AutoShareServer" -Value 0 -Type DWord
@@ -66,6 +66,15 @@ try {
 
     # Disable mDNS
     Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters" -Name "EnableMDNS" -Value 0 -Type DWord
+
+    # Hardened UNC Paths
+    $hardenedPathsKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\NetworkProvider\HardenedPaths"
+    if (-not (Test-Path $hardenedPathsKey)) {
+        New-Item -Path $hardenedPathsKey -Force | Out-Null
+    }
+    Set-ItemProperty -Path $hardenedPathsKey -Name "\\*\NETLOGON" -Value "RequireMutualAuthentication=1, RequireIntegrity=1" -Force
+    Set-ItemProperty -Path $hardenedPathsKey -Name "\\*\SYSVOL" -Value "RequireMutualAuthentication=1, RequireIntegrity=1" -Force
+    Write-Log -Message "Hardened UNC Paths configured." -Level "SUCCESS" -LogFile $LogFile
 
     Write-Log -Message "Extended SMB/Network hardening applied." -Level "SUCCESS" -LogFile $LogFile
 } catch {
@@ -143,7 +152,7 @@ if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType=
         Set-DnsServerDiagnostics -EventLogLevel 4 -UseSystemEventLog $True -EnableLogFileRollover $False -ErrorAction SilentlyContinue
         
         # Cache & TTL
-        Set-DnsServerCache -MaxCacheTtl "24.00:00:00" -MaxNegativeCacheTtl "00:15:00" -PollutionProtection $True -ErrorAction SilentlyContinue
+        Set-DnsServerCache -MaxTtl "24.00:00:00" -MaxNegativeTtl "00:15:00" -PollutionProtection $True -ErrorAction SilentlyContinue
         
         # Zone Transfers (Secure Only)
         # This iterates all zones and sets them to Secure Only updates and restricts transfers

@@ -99,11 +99,11 @@ if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType=
             $NewLimit = "MaxConnIdleTime=180"
             
             # Remove existing if present
-            $AdminLimits = $AdminLimits | Where-Object { $_ -notmatch "MaxConnIdleTime=*" }
+            $AdminLimits = @($AdminLimits) | Where-Object { $_ -notmatch "MaxConnIdleTime=*" }
             # Add new
             $AdminLimits += $NewLimit
             
-            Set-ADObject -Identity $Policies -Replace @{lDAPAdminLimits=$AdminLimits}
+            Set-ADObject -Identity $Policies -Replace @{lDAPAdminLimits=[string[]]$AdminLimits}
             Write-Log -Message "Set MaxConnIdleTime to 180 seconds." -Level "SUCCESS" -LogFile $LogFile
         }
     } catch {

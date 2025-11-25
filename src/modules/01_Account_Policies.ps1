@@ -320,7 +320,6 @@ if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType=
     } catch {
         Write-Log -Message "Failed to set ForceUnlockLogon: $_" -Level "ERROR" -LogFile $LogFile
     }
-}
 
 } else {
     Write-Log -Message "Not a Domain Controller. Skipping AD Account Policies." -Level "WARNING" -LogFile $LogFile
