@@ -75,7 +75,24 @@ if (-not $IsSystem) {
     
     Start-Process -FilePath $PsExecPath -ArgumentList $CmdArgs -Wait
     
-    Write-Log -Message "Child process finished. Exiting parent." -Level "INFO" -LogFile $LogFile
+    Write-Log -Message "Child process finished." -Level "INFO" -LogFile $LogFile
+
+    # Cleanup Prompt
+    Write-Host "Hardening complete." -ForegroundColor Green
+    $response = Read-Host "Do you want to remove PsExec and lateral movement tools from C:\Sysinternals? (Y/N)"
+    if ($response -eq "Y") {
+        $ToolsToRemove = @("PsExec.exe", "PsExec64.exe")
+        foreach ($tool in $ToolsToRemove) {
+            $toolPath = Join-Path "C:\Sysinternals" $tool
+            if (Test-Path $toolPath) {
+                Remove-Item -Path $toolPath -Force -ErrorAction SilentlyContinue
+                Write-Log -Message "Removed $toolPath" -Level "INFO" -LogFile $LogFile
+            }
+        }
+        Write-Host "Cleanup complete." -ForegroundColor Green
+    }
+
+    Write-Log -Message "Exiting parent process." -Level "INFO" -LogFile $LogFile
     exit
 }
 
