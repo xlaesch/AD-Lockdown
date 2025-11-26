@@ -71,7 +71,44 @@ if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType=
 
     # --- 2. Privileged Group Cleanup ---
     Write-Log -Message "Cleaning up Privileged Groups..." -Level "INFO" -LogFile $LogFile
-    $groups = @("Domain Admins", "Enterprise Admins", "Administrators", "DnsAdmins", "Group Policy Creator Owners", "Schema Admins", "Key Admins", "Enterprise Key Admins")
+    
+    $groups = @()
+
+    # 1. Dynamic Discovery via AdminCount (SDProp)
+    try {
+        $adminCountGroups = Get-ADGroup -Filter {AdminCount -eq 1} | Select-Object -ExpandProperty Name
+        if ($adminCountGroups) {
+            $groups += $adminCountGroups
+            Write-Log -Message "Discovered via AdminCount=1: $($adminCountGroups -join ', ')" -Level "INFO" -LogFile $LogFile
+        }
+    } catch {
+        Write-Log -Message "Failed to query AdminCount=1 groups: $_" -Level "WARNING" -LogFile $LogFile
+    }
+
+    # 2. Discovery via Well-Known SIDs (Built-in Groups)
+    # S-1-5-32-544 (Administrators), S-1-5-32-548 (Account Ops), S-1-5-32-549 (Server Ops), S-1-5-32-551 (Backup Ops)
+    # Domain Admins (512), Enterprise Admins (519), Schema Admins (518) are usually covered by AdminCount, but we add for safety.
+    $wellKnownSids = @("S-1-5-32-544", "S-1-5-32-548", "S-1-5-32-549", "S-1-5-32-551")
+    
+    foreach ($sid in $wellKnownSids) {
+        try {
+            $group = Get-ADGroup -Identity $sid -ErrorAction SilentlyContinue
+            if ($group) {
+                $groups += $group.Name
+            }
+        } catch {
+            # SID might not exist in this domain context (rare for built-ins)
+        }
+    }
+
+    # Ensure explicit high-value groups are included if they somehow weren't caught
+    $mandatoryGroups = @("Domain Admins", "Enterprise Admins", "Schema Admins", "DnsAdmins", "Group Policy Creator Owners")
+    $groups += $mandatoryGroups
+
+    # Unique sort
+    $groups = $groups | Select-Object -Unique
+    
+    Write-Log -Message "Target Groups for Cleanup: $($groups -join ', ')" -Level "INFO" -LogFile $LogFile
 
     # Get Built-in Administrator Name to exclude it even if renamed
     $builtInAdminName = "Administrator"
