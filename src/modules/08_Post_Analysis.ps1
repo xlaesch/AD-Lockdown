@@ -17,12 +17,13 @@ $ToolsDir = "$PSScriptRoot/../../tools"
 if (Test-Path $ToolsDir) {
     $ZipFiles = Get-ChildItem -Path $ToolsDir -Filter "*.zip"
     foreach ($Zip in $ZipFiles) {
-        $Destination = Join-Path $ToolsDir $Zip.BaseName
-        if (-not (Test-Path $Destination)) {
+        $MarkerFile = "$($Zip.FullName).extracted"
+        if (-not (Test-Path $MarkerFile)) {
             Write-Log -Message "Extracting $($Zip.Name)..." -Level "INFO" -LogFile $LogFile
             try {
-                Expand-Archive -Path $Zip.FullName -DestinationPath $Destination -Force
-                Write-Log -Message "Extracted $($Zip.Name) to $Destination" -Level "INFO" -LogFile $LogFile
+                Expand-Archive -Path $Zip.FullName -DestinationPath $ToolsDir -Force
+                New-Item -Path $MarkerFile -ItemType File -Force | Out-Null
+                Write-Log -Message "Extracted $($Zip.Name) to $ToolsDir" -Level "INFO" -LogFile $LogFile
             } catch {
                 Write-Log -Message "Failed to extract $($Zip.Name): $_" -Level "ERROR" -LogFile $LogFile
             }
@@ -30,7 +31,24 @@ if (Test-Path $ToolsDir) {
     }
 }
 
-# --- 1. PingCastle ---
+# --- 1. Vulnerable Certificate Check (Certify.exe) ---
+$CertifyPath = "$PSScriptRoot/../../tools/certify.exe"
+if (-not (Test-Path $CertifyPath)) { $CertifyPath = "$PSScriptRoot/../../tools/Certify/Certify.exe" }
+
+if (Test-Path $CertifyPath) {
+    try {
+        Write-Log -Message "Found Certify at $CertifyPath. Running check..." -Level "INFO" -LogFile $LogFile
+        $output = & $CertifyPath find /vulnerable 2>&1
+        Write-Log -Message "Certify Output:`n$output" -Level "INFO" -LogFile $LogFile
+        Write-Log -Message "Review the log above for vulnerable certificates." -Level "WARNING" -LogFile $LogFile
+    } catch {
+        Write-Log -Message "Failed to run Certify.exe: $_" -Level "ERROR" -LogFile $LogFile
+    }
+} else {
+    Write-Log -Message "Certify.exe not found. Skipping vulnerable certificate check." -Level "WARNING" -LogFile $LogFile
+}
+
+# --- 2. PingCastle ---
 $PingCastlePath = "$PSScriptRoot/../../tools/PingCastle.exe"
 # Check if it might be in a subfolder
 if (-not (Test-Path $PingCastlePath)) {
@@ -67,8 +85,10 @@ if (Test-Path $PingCastlePath) {
     Write-Log -Message "PingCastle not found. Skipping." -Level "WARNING" -LogFile $LogFile
 }
 
-# --- 2. BloodHound (SharpHound) ---
+# --- 3. BloodHound (SharpHound) ---
 $SharpHoundPath = "$PSScriptRoot/../../tools/SharpHound.exe"
+if (-not (Test-Path $SharpHoundPath)) { $SharpHoundPath = "$PSScriptRoot/../../tools/SharpHound/SharpHound.exe" }
+
 if (Test-Path $SharpHoundPath) {
     Write-Log -Message "Found SharpHound at $SharpHoundPath. Running collection..." -Level "INFO" -LogFile $LogFile
     try {

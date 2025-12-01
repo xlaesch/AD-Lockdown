@@ -55,18 +55,3 @@ try {
 # We will skip this unless absolutely necessary, or log it.
 Write-Log -Message "Legacy script requested NTDS restart. Skipping for safety to prevent DC downtime." -Level "WARNING" -LogFile $LogFile
 
-# --- 4. Vulnerable Certificate Check (Certify.exe) ---
-Write-Log -Message "Checking for vulnerable certificates..." -Level "INFO" -LogFile $LogFile
-$CertifyPath = "$PSScriptRoot/../../tools/certify.exe" # Assuming tools dir at root
-if (Test-Path $CertifyPath) {
-    try {
-        Write-Log -Message "Running Certify.exe..." -Level "INFO" -LogFile $LogFile
-        $output = & $CertifyPath find /vulnerable 2>&1
-        Write-Log -Message "Certify Output:`n$output" -Level "INFO" -LogFile $LogFile
-        Write-Log -Message "Review the log above for vulnerable certificates and delete them manually." -Level "WARNING" -LogFile $LogFile
-    } catch {
-        Write-Log -Message "Failed to run Certify.exe: $_" -Level "ERROR" -LogFile $LogFile
-    }
-} else {
-    Write-Log -Message "Certify.exe not found at $CertifyPath. Skipping vulnerable certificate check." -Level "WARNING" -LogFile $LogFile
-}
