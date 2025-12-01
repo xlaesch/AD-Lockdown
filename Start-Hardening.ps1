@@ -107,7 +107,8 @@ $AvailableModules = @(
     "04_Audit_Logging.ps1",
     "05_Cert_Authority.ps1",
     "06_Firewall_Hardening.ps1",
-    "07_Backup_Services.ps1"
+    "07_Backup_Services.ps1",
+    "08_Post_Analysis.ps1"
 )
 
 $ModulesToExecute = @()
