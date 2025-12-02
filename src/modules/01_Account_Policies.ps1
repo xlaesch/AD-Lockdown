@@ -98,46 +98,7 @@ if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType=
         Write-Log -Message "Failed to reset KRBTGT password: $_" -Level "ERROR" -LogFile $LogFile
     }
 
-    # --- 1.6 Encrypt Password File ---
-    if (Test-Path $PasswordFile) {
-        Write-Log -Message "Encrypting password file..." -Level "INFO" -LogFile $LogFile
-        try {
-            # Hardcoded Base64 Key
-            # TODO: Replace this with your specific Base64 key (must decode to 16, 24, or 32 bytes)
-            # Example 32-byte key generation: [Convert]::ToBase64String((1..32 | %{ Get-Random -Min 0 -Max 255 }))
-            $Base64Key = "YOUR_BASE64_KEY_HERE" 
-            
-            if ($Base64Key -eq "YOUR_BASE64_KEY_HERE") {
-                Write-Log -Message "Hardcoded key not set. Generating a temporary random key for this run." -Level "WARNING" -LogFile $LogFile
-                $KeyBytes = New-Object Byte[] 32
-                [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($KeyBytes)
-                $Base64Key = [Convert]::ToBase64String($KeyBytes)
-                Write-Log -Message "TEMPORARY KEY (Save this to decrypt): $Base64Key" -Level "WARNING" -LogFile $LogFile
-                Write-Host "TEMPORARY KEY: $Base64Key" -ForegroundColor Magenta
-            } else {
-                $KeyBytes = [Convert]::FromBase64String($Base64Key)
-            }
-            
-            # Read Content
-            $Content = Get-Content -Path $PasswordFile -Raw
-            
-            # Encrypt
-            $SecureString = ConvertTo-SecureString -String $Content -AsPlainText -Force
-            $EncryptedContent = ConvertFrom-SecureString -SecureString $SecureString -Key $KeyBytes
-            
-            # Save Encrypted File
-            $EncryptedFile = "$PasswordFile.enc"
-            $EncryptedContent | Out-File -FilePath $EncryptedFile -Encoding ASCII
-            
-            # Remove Original
-            Remove-Item -Path $PasswordFile -Force
-            
-            Write-Log -Message "Password file encrypted to $EncryptedFile using hardcoded key." -Level "SUCCESS" -LogFile $LogFile
-        }
-        catch {
-            Write-Log -Message "Failed to encrypt password file: $_" -Level "ERROR" -LogFile $LogFile
-        }
-    }
+
 
     # --- 2. Privileged Group Cleanup ---
     Write-Log -Message "Cleaning up Privileged Groups..." -Level "INFO" -LogFile $LogFile

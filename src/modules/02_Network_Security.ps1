@@ -89,36 +89,8 @@ try {
     # Enforce LDAP Client Signing
     Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LDAP" -Name "LDAPClientIntegrity" -Value 2 -Type DWord
     
-    # Enforce NTLMv2 Only (Refuse LM & NTLM) via Local Security Policy (SecEdit)
-    # This is more robust than direct registry editing as it updates the policy database
-    $SecEditInf = "$env:TEMP\NTLM_Hardening.inf"
-    $SecEditSdb = "$env:TEMP\NTLM_Hardening.sdb"
-    
-    $InfContent = @"
-[Unicode]
-Unicode=yes
-[Version]
-signature="`$CHICAGO`$"
-Revision=1
-[Registry Values]
-MACHINE\System\CurrentControlSet\Control\Lsa\LmCompatibilityLevel=4,5
-"@
-    $InfContent | Out-File -FilePath $SecEditInf -Encoding Unicode
-
-    try {
-        $process = Start-Process -FilePath "secedit.exe" -ArgumentList "/configure /db `"$SecEditSdb`" /cfg `"$SecEditInf`" /areas SECURITYPOLICY" -Wait -PassThru -NoNewWindow
-        if ($process.ExitCode -eq 0) {
-             Write-Log -Message "Successfully enforced NTLMv2 via Local Security Policy." -Level "SUCCESS" -LogFile $LogFile
-        } else {
-             throw "SecEdit returned exit code $($process.ExitCode)"
-        }
-    } catch {
-        Write-Log -Message "Failed to enforce via SecEdit, falling back to Registry: $_" -Level "WARNING" -LogFile $LogFile
-        Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "LmCompatibilityLevel" -Value 5 -Type DWord
-    }
-    
-    Remove-Item -Path $SecEditInf -ErrorAction SilentlyContinue
-    Remove-Item -Path $SecEditSdb -ErrorAction SilentlyContinue
+    # Enforce NTLMv2 Only (Refuse LM & NTLM)
+    Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "LmCompatibilityLevel" -Value 5 -Type DWord
 
     # Kerberos Encryption Types (AES only)
     Set-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters" -Name "SupportedEncryptionTypes" -Value 2147483640 -Type DWord
