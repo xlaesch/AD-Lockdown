@@ -31,11 +31,12 @@ if (-not (Test-Path $LogDir)) {
 Write-Log -Message "=== Starting AD Hardening Process ===" -Level "INFO" -LogFile $LogFile
 
 # Install Sysinternals
+$SysinternalsDir = "$PSScriptRoot/tools"
 try {
-    Install-Sysinternals -LogFile $LogFile
+    Install-Sysinternals -DestinationPath $SysinternalsDir -LogFile $LogFile
 }
 catch {
-    Write-Warning "Sysinternals installation failed. Check logs for details."
+    Write-Warning "Sysinternals (PSTools) installation failed. Check logs for details."
 }
 
 # Check for SYSTEM privileges and Relaunch if needed
@@ -47,7 +48,7 @@ $IsSystem = $p.IsInRole([System.Security.Principal.SecurityIdentifier]"S-1-5-18"
 if (-not $IsSystem) {
     Write-Log -Message "Not running as SYSTEM. Attempting to elevate using PsExec..." -Level "INFO" -LogFile $LogFile
     
-    $PsExecPath = "C:\Sysinternals\PsExec.exe"
+    $PsExecPath = Join-Path $SysinternalsDir "PsExec.exe"
     if (-not (Test-Path $PsExecPath)) {
          Write-Warning "PsExec not found at $PsExecPath. Cannot elevate."
          exit
@@ -79,11 +80,11 @@ if (-not $IsSystem) {
 
     # Cleanup Prompt
     Write-Host "Hardening complete." -ForegroundColor Green
-    $response = Read-Host "Do you want to remove PsExec and lateral movement tools from C:\Sysinternals? (Y/N)"
+    $response = Read-Host "Do you want to remove PsExec from $SysinternalsDir? (Y/N)"
     if ($response -eq "Y") {
-        $ToolsToRemove = @("PsExec.exe", "PsExec64.exe")
+        $ToolsToRemove = @("PsExec.exe", "PsExec64.exe", "PSTools.zip")
         foreach ($tool in $ToolsToRemove) {
-            $toolPath = Join-Path "C:\Sysinternals" $tool
+            $toolPath = Join-Path $SysinternalsDir $tool
             if (Test-Path $toolPath) {
                 Remove-Item -Path $toolPath -Force -ErrorAction SilentlyContinue
                 Write-Log -Message "Removed $toolPath" -Level "INFO" -LogFile $LogFile
