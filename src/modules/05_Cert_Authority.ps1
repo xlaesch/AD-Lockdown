@@ -55,3 +55,4 @@ try {
 # We will skip this unless absolutely necessary, or log it.
 Write-Log -Message "Legacy script requested NTDS restart. Skipping for safety to prevent DC downtime." -Level "WARNING" -LogFile $LogFile
 
+

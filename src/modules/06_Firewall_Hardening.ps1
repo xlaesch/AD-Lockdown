@@ -3,7 +3,8 @@
 # Based on legacy dcFirewall.bat and GPFirewalls.ps1
 
 param(
-    [string]$LogFile
+    [string]$LogFile,
+    $Config
 )
 
 if (-not (Get-Command Write-Log -ErrorAction SilentlyContinue)) {
@@ -11,6 +12,13 @@ if (-not (Get-Command Write-Log -ErrorAction SilentlyContinue)) {
 }
 
 Write-Log -Message "Starting Firewall Hardening..." -Level "INFO" -LogFile $LogFile
+
+# Determine Trusted Network
+$TrustedNetwork = "LocalSubnet"
+if ($Config -and $Config.TrustedNetwork) {
+    $TrustedNetwork = $Config.TrustedNetwork
+}
+Write-Log -Message "Using Trusted Network: $TrustedNetwork" -Level "INFO" -LogFile $LogFile
 
 # Helper function to add rule safely
 function Add-FirewallRule {
@@ -35,6 +43,8 @@ function Add-FirewallRule {
         if ($Protocol) { $params.Add("Protocol", $Protocol) }
         if ($LocalPort) { $params.Add("LocalPort", $LocalPort) }
         if ($RemotePort) { $params.Add("RemotePort", $RemotePort) }
+        # Use provided RemoteAddress or default to TrustedNetwork if "LocalSubnet" was intended
+        # But here we just pass what we are given. The caller determines the value.
         if ($RemoteAddress) { $params.Add("RemoteAddress", $RemoteAddress) }
         if ($Program) { $params.Add("Program", $Program) }
         if ($Service) { $params.Add("Service", $Service) }
@@ -61,7 +71,7 @@ Write-Log -Message "Applying Common Firewall Rules..." -Level "INFO" -LogFile $L
 
 # Ping (ICMPv4) - Restricted to internal subnet example (10.120.0.0/16 from legacy)
 # We will use LocalSubnet instead for safety unless specific IP provided
-Add-FirewallRule -DisplayName "Ping In (LocalSubnet)" -Direction "Inbound" -Protocol "ICMPv4" -RemoteAddress "LocalSubnet"
+Add-FirewallRule -DisplayName "Ping In (LocalSubnet)" -Direction "Inbound" -Protocol "ICMPv4" -RemoteAddress $TrustedNetwork
 
 # RDP (TCP 3389)
 Add-FirewallRule -DisplayName "RDP In" -Direction "Inbound" -Protocol "TCP" -LocalPort "3389" -Service "TermService"
@@ -71,39 +81,39 @@ if ($isDC) {
     Write-Log -Message "Applying Domain Controller Firewall Rules..." -Level "INFO" -LogFile $LogFile
 
     # DNS (UDP 53)
-    Add-FirewallRule -DisplayName "DNS In (UDP)" -Direction "Inbound" -Protocol "UDP" -LocalPort "53" -RemoteAddress "LocalSubnet"
+    Add-FirewallRule -DisplayName "DNS In (UDP)" -Direction "Inbound" -Protocol "UDP" -LocalPort "53" -RemoteAddress $TrustedNetwork
     Add-FirewallRule -DisplayName "DNS Out (UDP)" -Direction "Outbound" -Protocol "UDP" -RemotePort "53"
 
     # Kerberos (TCP/UDP 88)
-    Add-FirewallRule -DisplayName "Kerberos TCP In" -Direction "Inbound" -Protocol "TCP" -LocalPort "88" -RemoteAddress "LocalSubnet"
-    Add-FirewallRule -DisplayName "Kerberos UDP In" -Direction "Inbound" -Protocol "UDP" -LocalPort "88" -RemoteAddress "LocalSubnet"
-    Add-FirewallRule -DisplayName "Kerberos UDP Out" -Direction "Outbound" -Protocol "UDP" -RemotePort "88" -RemoteAddress "LocalSubnet"
+    Add-FirewallRule -DisplayName "Kerberos TCP In" -Direction "Inbound" -Protocol "TCP" -LocalPort "88" -RemoteAddress $TrustedNetwork
+    Add-FirewallRule -DisplayName "Kerberos UDP In" -Direction "Inbound" -Protocol "UDP" -LocalPort "88" -RemoteAddress $TrustedNetwork
+    Add-FirewallRule -DisplayName "Kerberos UDP Out" -Direction "Outbound" -Protocol "UDP" -RemotePort "88" -RemoteAddress $TrustedNetwork
 
     # LDAP (TCP/UDP 389)
-    Add-FirewallRule -DisplayName "LDAP TCP In" -Direction "Inbound" -Protocol "TCP" -LocalPort "389" -RemoteAddress "LocalSubnet"
-    Add-FirewallRule -DisplayName "LDAP UDP In" -Direction "Inbound" -Protocol "UDP" -LocalPort "389" -RemoteAddress "LocalSubnet"
+    Add-FirewallRule -DisplayName "LDAP TCP In" -Direction "Inbound" -Protocol "TCP" -LocalPort "389" -RemoteAddress $TrustedNetwork
+    Add-FirewallRule -DisplayName "LDAP UDP In" -Direction "Inbound" -Protocol "UDP" -LocalPort "389" -RemoteAddress $TrustedNetwork
 
     # SMB (TCP 445)
-    Add-FirewallRule -DisplayName "SMB In" -Direction "Inbound" -Protocol "TCP" -LocalPort "445" -RemoteAddress "LocalSubnet"
-    Add-FirewallRule -DisplayName "SMB Out" -Direction "Outbound" -Protocol "TCP" -RemotePort "445" -RemoteAddress "LocalSubnet"
+    Add-FirewallRule -DisplayName "SMB In" -Direction "Inbound" -Protocol "TCP" -LocalPort "445" -RemoteAddress $TrustedNetwork
+    Add-FirewallRule -DisplayName "SMB Out" -Direction "Outbound" -Protocol "TCP" -RemotePort "445" -RemoteAddress $TrustedNetwork
 
     # RPC Endpoint Mapper (TCP 135)
-    Add-FirewallRule -DisplayName "RPC Map In" -Direction "Inbound" -Protocol "TCP" -LocalPort "135" -RemoteAddress "LocalSubnet"
-    Add-FirewallRule -DisplayName "RPC Map Out" -Direction "Outbound" -Protocol "TCP" -RemotePort "135" -RemoteAddress "LocalSubnet"
+    Add-FirewallRule -DisplayName "RPC Map In" -Direction "Inbound" -Protocol "TCP" -LocalPort "135" -RemoteAddress $TrustedNetwork
+    Add-FirewallRule -DisplayName "RPC Map Out" -Direction "Outbound" -Protocol "TCP" -RemotePort "135" -RemoteAddress $TrustedNetwork
 
     # W32Time (UDP 123)
-    Add-FirewallRule -DisplayName "W32Time In" -Direction "Inbound" -Protocol "UDP" -LocalPort "123" -RemoteAddress "LocalSubnet"
+    Add-FirewallRule -DisplayName "W32Time In" -Direction "Inbound" -Protocol "UDP" -LocalPort "123" -RemoteAddress $TrustedNetwork
 
     # DFSR / File Replication (TCP 139, UDP 138) - Legacy script had these
-    Add-FirewallRule -DisplayName "NetBIOS Session In" -Direction "Inbound" -Protocol "TCP" -LocalPort "139" -RemoteAddress "LocalSubnet"
-    Add-FirewallRule -DisplayName "NetBIOS Datagram In" -Direction "Inbound" -Protocol "UDP" -LocalPort "138" -RemoteAddress "LocalSubnet"
+    Add-FirewallRule -DisplayName "NetBIOS Session In" -Direction "Inbound" -Protocol "TCP" -LocalPort "139" -RemoteAddress $TrustedNetwork
+    Add-FirewallRule -DisplayName "NetBIOS Datagram In" -Direction "Inbound" -Protocol "UDP" -LocalPort "138" -RemoteAddress $TrustedNetwork
     
     # Global Catalog (TCP 3268/3269) - Not in legacy but critical for multi-domain
-    Add-FirewallRule -DisplayName "Global Catalog TCP In" -Direction "Inbound" -Protocol "TCP" -LocalPort "3268" -RemoteAddress "LocalSubnet"
-    Add-FirewallRule -DisplayName "Global Catalog SSL TCP In" -Direction "Inbound" -Protocol "TCP" -LocalPort "3269" -RemoteAddress "LocalSubnet"
+    Add-FirewallRule -DisplayName "Global Catalog TCP In" -Direction "Inbound" -Protocol "TCP" -LocalPort "3268" -RemoteAddress $TrustedNetwork
+    Add-FirewallRule -DisplayName "Global Catalog SSL TCP In" -Direction "Inbound" -Protocol "TCP" -LocalPort "3269" -RemoteAddress $TrustedNetwork
 
     # AD Web Services (TCP 9389) - For AD PowerShell module/ADAC
-    Add-FirewallRule -DisplayName "AD Web Services In" -Direction "Inbound" -Protocol "TCP" -LocalPort "9389" -RemoteAddress "LocalSubnet"
+    Add-FirewallRule -DisplayName "AD Web Services In" -Direction "Inbound" -Protocol "TCP" -LocalPort "9389" -RemoteAddress $TrustedNetwork
 }
 
 # --- 4. Member Server Rules (If not DC) ---
@@ -114,10 +124,10 @@ if (-not $isDC) {
     # We can't easily know DC IPs dynamically without querying AD, which might be blocked if we lock down too hard first.
     # Assuming LocalSubnet is safe for now.
     
-    Add-FirewallRule -DisplayName "Kerberos to DC" -Direction "Outbound" -Protocol "TCP" -RemotePort "88" -RemoteAddress "LocalSubnet"
-    Add-FirewallRule -DisplayName "LDAP to DC" -Direction "Outbound" -Protocol "TCP" -RemotePort "389" -RemoteAddress "LocalSubnet"
-    Add-FirewallRule -DisplayName "SMB to DC" -Direction "Outbound" -Protocol "TCP" -RemotePort "445" -RemoteAddress "LocalSubnet"
-    Add-FirewallRule -DisplayName "DNS to DC" -Direction "Outbound" -Protocol "UDP" -RemotePort "53" -RemoteAddress "LocalSubnet"
+    Add-FirewallRule -DisplayName "Kerberos to DC" -Direction "Outbound" -Protocol "TCP" -RemotePort "88" -RemoteAddress $TrustedNetwork
+    Add-FirewallRule -DisplayName "LDAP to DC" -Direction "Outbound" -Protocol "TCP" -RemotePort "389" -RemoteAddress $TrustedNetwork
+    Add-FirewallRule -DisplayName "SMB to DC" -Direction "Outbound" -Protocol "TCP" -RemotePort "445" -RemoteAddress $TrustedNetwork
+    Add-FirewallRule -DisplayName "DNS to DC" -Direction "Outbound" -Protocol "UDP" -RemotePort "53" -RemoteAddress $TrustedNetwork
 }
 
 # --- 5. Block Script Engines Outbound ---

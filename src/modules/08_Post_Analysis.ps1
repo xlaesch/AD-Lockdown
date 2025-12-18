@@ -113,3 +113,4 @@ if (Test-Path $SharpHoundPath) {
 }
 
 Write-Log -Message "Post-Hardening Analysis Complete." -Level "INFO" -LogFile $LogFile
+

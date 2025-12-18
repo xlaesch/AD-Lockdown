@@ -2,7 +2,8 @@
 # Handles Network level hardening for AD (Firewall, Zerologon)
 
 param(
-    [string]$LogFile
+    [string]$LogFile,
+    $Config
 )
 
 if (-not (Get-Command Write-Log -ErrorAction SilentlyContinue)) {
@@ -89,11 +90,12 @@ try {
     # Enforce LDAP Client Signing
     Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LDAP" -Name "LDAPClientIntegrity" -Value 2 -Type DWord
     
-    # Enforce NTLMv2 Only (Refuse LM & NTLM)
-    Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "LmCompatibilityLevel" -Value 5 -Type DWord
+    # Enforce NTLMv2 Only (Refuse LM & NTLM) - RELAXED to 3 (Send NTLMv2, allow others) for Web Server/Legacy compatibility
+    Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "LmCompatibilityLevel" -Value 3 -Type DWord
 
-    # Kerberos Encryption Types (AES only)
-    Set-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters" -Name "SupportedEncryptionTypes" -Value 2147483640 -Type DWord
+    # Kerberos Encryption Types (AES + RC4) - RELAXED for Web Server compatibility
+    # 2147483644 = AES128 + AES256 + RC4
+    Set-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters" -Name "SupportedEncryptionTypes" -Value 2147483644 -Type DWord
 
     if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType='2'") {
         # LDAP Server Integrity (Signing)
@@ -243,9 +245,10 @@ Write-Log -Message "Configuring NTLM Minimum Security Levels..." -Level "INFO" -
 try {
     # NTLMv2 Session Security (Require NTLMv2, 128-bit encryption)
     # Value 537395200 = 0x20080000 = Require NTLMv2 + 128-bit encryption
-    Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" -Name "NTLMMinClientSec" -Value 537395200 -Type DWord
-    Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" -Name "NTLMMinServerSec" -Value 537395200 -Type DWord
-    Write-Log -Message "NTLM minimum security levels set (NTLMv2 + 128-bit)." -Level "SUCCESS" -LogFile $LogFile
+    # RELAXED: Commented out to prevent breaking legacy clients/Web Servers
+    # Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" -Name "NTLMMinClientSec" -Value 537395200 -Type DWord
+    # Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" -Name "NTLMMinServerSec" -Value 537395200 -Type DWord
+    Write-Log -Message "NTLM minimum security levels SKIPPED for compatibility." -Level "WARNING" -LogFile $LogFile
 }
 catch {
     Write-Log -Message "Failed to configure NTLM security levels: $_" -Level "ERROR" -LogFile $LogFile
@@ -257,9 +260,10 @@ try {
     $lsaPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
 
     # Prevent Anonymous Access to AD
-    Set-RegistryValue -Path $lsaPath -Name "RestrictAnonymous" -Value 1 -Type DWord
+    # RELAXED: Set to 0 for Web Server compatibility (IIS often needs this)
+    Set-RegistryValue -Path $lsaPath -Name "RestrictAnonymous" -Value 0 -Type DWord
     Set-RegistryValue -Path $lsaPath -Name "RestrictAnonymousSAM" -Value 1 -Type DWord
-    Set-RegistryValue -Path $lsaPath -Name "EveryoneIncludesAnonymous" -Value 0 -Type DWord
+    Set-RegistryValue -Path $lsaPath -Name "EveryoneIncludesAnonymous" -Value 1 -Type DWord
 
     # Disable Default Admin Shares (C$, ADMIN$ auto-creation)
     Set-RegistryValue -Path $lsaPath -Name "NoDefaultAdminShares" -Value 1 -Type DWord

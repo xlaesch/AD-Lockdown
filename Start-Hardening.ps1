@@ -155,12 +155,30 @@ if ($ModulesToExecute.Count -eq 0) {
     exit
 }
 
+# Load Configuration
+$ConfigObj = @{}
+if (Test-Path $ConfigFile) {
+    try {
+        $JsonContent = Get-Content -Raw $ConfigFile
+        if (-not [string]::IsNullOrWhiteSpace($JsonContent)) {
+            $ConfigObj = $JsonContent | ConvertFrom-Json
+            Write-Log -Message "Configuration loaded from $ConfigFile" -Level "INFO" -LogFile $LogFile
+        } else {
+             Write-Log -Message "Configuration file is empty: $ConfigFile" -Level "WARNING" -LogFile $LogFile
+        }
+    } catch {
+         Write-Log -Message "Failed to load config from $ConfigFile: $_" -Level "ERROR" -LogFile $LogFile
+    }
+} else {
+    Write-Log -Message "Configuration file not found: $ConfigFile" -Level "WARNING" -LogFile $LogFile
+}
+
 foreach ($Module in $ModulesToExecute) {
     $ModulePath = "$ScriptRoot/src/modules/$Module"
     if (Test-Path $ModulePath) {
         Write-Log -Message "Executing module: $Module" -Level "INFO" -LogFile $LogFile
         try {
-            & $ModulePath -LogFile $LogFile
+            & $ModulePath -LogFile $LogFile -Config $ConfigObj
         }
         catch {
             Write-Log -Message "Error executing module $Module : $_" -Level "ERROR" -LogFile $LogFile

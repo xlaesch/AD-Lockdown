@@ -217,7 +217,8 @@ if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType=
     # --- 5. noPac Mitigation (MachineAccountQuota) ---
     Write-Log -Message "Setting ms-DS-MachineAccountQuota to 0..." -Level "INFO" -LogFile $LogFile
     try {
-        Set-ADDomain -Identity $env:USERDNSDOMAIN -Replace @{"ms-DS-MachineAccountQuota" = "0" } | Out-Null
+        $domainDN = (Get-ADDomain).DistinguishedName
+        Set-ADObject -Identity $domainDN -Replace @{"ms-DS-MachineAccountQuota" = 0 }
         Write-Log -Message "ms-DS-MachineAccountQuota set to 0." -Level "SUCCESS" -LogFile $LogFile
     }
     catch {
@@ -626,16 +627,18 @@ if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType=
 
         # Whitelist: Domain Controllers, Enterprise Domain Controllers, Administrators
         $allowedPrincipals = @()
+        
+        # Add Well-known SIDs first (CRITICAL: Must happen before potentially failing Get-ADGroup calls)
+        $allowedPrincipals += New-Object System.Security.Principal.SecurityIdentifier("S-1-5-9")  # Enterprise Domain Controllers
+        $allowedPrincipals += New-Object System.Security.Principal.SecurityIdentifier("S-1-5-18") # SYSTEM
+        
         try {
             $allowedPrincipals += (Get-ADGroup "Domain Controllers").SID
             $allowedPrincipals += (Get-ADGroup "Enterprise Domain Controllers" -ErrorAction SilentlyContinue).SID
             $allowedPrincipals += (Get-ADGroup "Administrators").SID
-            # Well-known SID for SYSTEM and ENTERPRISE DOMAIN CONTROLLERS
-            $allowedPrincipals += New-Object System.Security.Principal.SecurityIdentifier("S-1-5-9")  # Enterprise Domain Controllers
-            $allowedPrincipals += New-Object System.Security.Principal.SecurityIdentifier("S-1-5-18") # SYSTEM
         }
         catch {
-            Write-Log -Message "Error building allowed principals list: $_" -Level "WARNING" -LogFile $LogFile
+            Write-Log -Message "Error resolving some admin groups (safe to ignore if well-known SIDs are present): $_" -Level "WARNING" -LogFile $LogFile
         }
 
         # Check all ACEs for dangerous DCSync permissions
@@ -680,3 +683,4 @@ if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType=
 } else {
     Write-Log -Message "Not a Domain Controller. Skipping AD Account Policies." -Level "WARNING" -LogFile $LogFile
 }
+
