@@ -12,25 +12,6 @@ if (-not (Get-Command Write-Log -ErrorAction SilentlyContinue)) {
 
 Write-Log -Message "Starting Post-Hardening Analysis..." -Level "INFO" -LogFile $LogFile
 
-# --- 0. Unzip Tools ---
-$ToolsDir = "$PSScriptRoot/../../tools"
-if (Test-Path $ToolsDir) {
-    $ZipFiles = Get-ChildItem -Path $ToolsDir -Filter "*.zip"
-    foreach ($Zip in $ZipFiles) {
-        $MarkerFile = "$($Zip.FullName).extracted"
-        if (-not (Test-Path $MarkerFile)) {
-            Write-Log -Message "Extracting $($Zip.Name)..." -Level "INFO" -LogFile $LogFile
-            try {
-                Expand-Archive -Path $Zip.FullName -DestinationPath $ToolsDir -Force
-                New-Item -Path $MarkerFile -ItemType File -Force | Out-Null
-                Write-Log -Message "Extracted $($Zip.Name) to $ToolsDir" -Level "INFO" -LogFile $LogFile
-            } catch {
-                Write-Log -Message "Failed to extract $($Zip.Name): $_" -Level "ERROR" -LogFile $LogFile
-            }
-        }
-    }
-}
-
 # --- 1. Vulnerable Certificate Check (Certify.exe) ---
 $CertifyPath = "$PSScriptRoot/../../tools/certify.exe"
 if (-not (Test-Path $CertifyPath)) { $CertifyPath = "$PSScriptRoot/../../tools/Certify/Certify.exe" }

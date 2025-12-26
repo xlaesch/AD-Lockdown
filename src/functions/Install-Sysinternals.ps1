@@ -1,6 +1,7 @@
 function Install-Sysinternals {
     param (
         [string]$DestinationPath = "C:\Sysinternals",
+        [string]$SourceZipPath = (Join-Path $PSScriptRoot "..\\..\\tools.zip"),
         [string]$LogFile
     )
 
@@ -14,19 +15,15 @@ function Install-Sysinternals {
         return
     }
 
-    $ZipPath = Join-Path $DestinationPath "PSTools.zip"
-    $Url = "https://download.sysinternals.com/files/PSTools.zip"
-
     try {
-        if ($LogFile) { Write-Log -Message "Downloading PSTools (PsExec) to $ZipPath..." -Level "INFO" -LogFile $LogFile }
-        Invoke-WebRequest -Uri $Url -OutFile $ZipPath -UseBasicParsing
-        
-        if ($LogFile) { Write-Log -Message "Extracting PSTools..." -Level "INFO" -LogFile $LogFile }
-        Expand-Archive -Path $ZipPath -DestinationPath $DestinationPath -Force
-        
-        Remove-Item -Path $ZipPath -Force
-        
-        if ($LogFile) { Write-Log -Message "PSTools installed successfully." -Level "INFO" -LogFile $LogFile }
+        if (-not (Test-Path $SourceZipPath)) {
+            if ($LogFile) { Write-Log -Message "Sysinternals bundle not found at $SourceZipPath. Skipping install." -Level "WARNING" -LogFile $LogFile }
+            return
+        }
+
+        if ($LogFile) { Write-Log -Message "Extracting Sysinternals bundle from $SourceZipPath..." -Level "INFO" -LogFile $LogFile }
+        Expand-Archive -Path $SourceZipPath -DestinationPath $DestinationPath -Force
+        if ($LogFile) { Write-Log -Message "Sysinternals bundle extracted successfully." -Level "INFO" -LogFile $LogFile }
     }
     catch {
         if ($LogFile) { Write-Log -Message "Failed to install PSTools: $_" -Level "ERROR" -LogFile $LogFile }

@@ -2,7 +2,8 @@
 # Handles User Passwords, Group Memberships, and Account Controls
 
 param(
-    [string]$LogFile
+    [string]$LogFile,
+    $Config
 )
 
 # Import helper functions if running standalone (optional check)
@@ -12,77 +13,21 @@ if (-not (Get-Command Write-Log -ErrorAction SilentlyContinue)) {
 if (-not (Get-Command New-RandomPassword -ErrorAction SilentlyContinue)) {
     . "$PSScriptRoot/../functions/New-RandomPassword.ps1"
 }
-
 Write-Log -Message "Starting Account Policies Hardening..." -Level "INFO" -LogFile $LogFile
 
-# Check if we are on a Domain Controller
-if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType='2'") {
-    
-    # Setup Secrets Directory & File
+# Setup Secrets Directory & File
     $SecretsDir = "$PSScriptRoot/../../secrets"
     if (-not (Test-Path $SecretsDir)) { New-Item -ItemType Directory -Path $SecretsDir -Force | Out-Null }
-    $PasswordFile = "$SecretsDir/rotated_passwords_$(Get-Date -Format 'yyyy-MM-dd_HH-mm').csv"
-    "SamAccountName,Password" | Out-File -FilePath $PasswordFile -Encoding ASCII
+    $PasswordFile = $global:RotatedPasswordFile
+    if ([string]::IsNullOrWhiteSpace($PasswordFile)) {
+        $PasswordFile = "$SecretsDir/rotated_passwords_$(Get-Date -Format 'yyyy-MM-dd_HH-mm').csv"
+    }
+    if (-not (Test-Path $PasswordFile)) {
+        "SamAccountName,Password" | Out-File -FilePath $PasswordFile -Encoding ASCII
+    }
     Write-Log -Message "Passwords will be saved to $PasswordFile" -Level "INFO" -LogFile $LogFile
 
-    # --- 1. Domain User Password Rotation ---
-    Write-Log -Message "Rotating Domain User Passwords..." -Level "INFO" -LogFile $LogFile
-    
-    $rotateChoice = Read-Host "Do you want to rotate ALL domain user passwords? (Y/N)"
-    if ($rotateChoice -eq "Y") {
-        try {
-            Import-Module ActiveDirectory -ErrorAction Stop
-            
-            $excludedGroups = @("Domain Admins", "Enterprise Admins")
-            $excludedUsers = foreach ($group in $excludedGroups) {
-                Get-ADGroupMember -Identity $group -Recursive | Select-Object -ExpandProperty SamAccountName
-            }
-            $excludedUsers = $excludedUsers | Select-Object -Unique
-            $excludedUsers += @("Administrator", "krbtgt", "Guest", "DefaultAccount")
-            
-            $users = Get-ADUser -Filter * | Where-Object {
-                ($_.SamAccountName -notin $excludedUsers)
-            }
-
-            $GroupUserMap = @{}
-
-            foreach ($user in $users) {
-                try {
-                    $newPassword    = New-RandomPassword -Length 16
-                    $securePassword = ConvertTo-SecureString -String $newPassword -AsPlainText -Force
-                    Set-ADAccountPassword -Identity $user.SamAccountName -NewPassword $securePassword -Reset
-                    
-                    Write-Log -Message "Password changed for user: $($user.SamAccountName)" -Level "SUCCESS" -LogFile $LogFile
-                    Write-Host "$($user.SamAccountName),$newPassword" # Output for operator visibility
-                    "$($user.SamAccountName),$newPassword" | Out-File -FilePath $PasswordFile -Append -Encoding ASCII
-                    
-                    # Track group membership for reporting
-                    $usersgroups = Get-ADPrincipalGroupMembership -Identity $user | Select-Object -ExpandProperty Name
-                    if ($usersgroups) {
-                        foreach ($groupName in $usersgroups) {
-                            if(!($GroupUserMap.ContainsKey($groupName))) {
-                                $GroupUserMap[$groupName] = New-Object System.Collections.ArrayList
-                            }
-                            $null = $GroupUserMap[$groupName].Add([PSCustomObject]@{
-                                User     = $user.SamAccountName
-                                Password = $newPassword
-                            })
-                        }
-                    }
-                } 
-                catch {
-                    Write-Log -Message "Failed to set password for user $($user.SamAccountName): $_" -Level "ERROR" -LogFile $LogFile
-                }
-            }
-        }
-        catch {
-            Write-Log -Message "Failed to load ActiveDirectory module or query users: $_" -Level "ERROR" -LogFile $LogFile
-        }
-    } else {
-        Write-Log -Message "Skipping domain user password rotation per user request." -Level "INFO" -LogFile $LogFile
-    }
-
-    # --- 1.5 KRBTGT Password Reset (Golden Ticket Mitigation) ---
+    # --- 1. KRBTGT Password Reset (Golden Ticket Mitigation) ---
     Write-Log -Message "Resetting KRBTGT password..." -Level "INFO" -LogFile $LogFile
     try {
         # Reset 1
@@ -106,92 +51,7 @@ if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType=
 
 
     # --- 2. Privileged Group Cleanup ---
-    Write-Log -Message "Cleaning up Privileged Groups..." -Level "INFO" -LogFile $LogFile
-    
-    $groups = @()
-
-    # 1. Dynamic Discovery via AdminCount (SDProp)
-    try {
-        $adminCountGroups = Get-ADGroup -Filter {AdminCount -eq 1} | Select-Object -ExpandProperty Name
-        if ($adminCountGroups) {
-            $groups += $adminCountGroups
-            Write-Log -Message "Discovered via AdminCount=1: $($adminCountGroups -join ', ')" -Level "INFO" -LogFile $LogFile
-        }
-    } catch {
-        Write-Log -Message "Failed to query AdminCount=1 groups: $_" -Level "WARNING" -LogFile $LogFile
-    }
-
-    # 2. Discovery via Well-Known SIDs (Built-in Groups)
-    # S-1-5-32-544 (Administrators), S-1-5-32-548 (Account Ops), S-1-5-32-549 (Server Ops), S-1-5-32-551 (Backup Ops)
-    # Domain Admins (512), Enterprise Admins (519), Schema Admins (518) are usually covered by AdminCount, but we add for safety.
-    $wellKnownSids = @("S-1-5-32-544", "S-1-5-32-548", "S-1-5-32-549", "S-1-5-32-551")
-    
-    foreach ($sid in $wellKnownSids) {
-        try {
-            $group = Get-ADGroup -Identity $sid -ErrorAction SilentlyContinue
-            if ($group) {
-                $groups += $group.Name
-            }
-        } catch {
-            # SID might not exist in this domain context (rare for built-ins)
-        }
-    }
-
-    # Ensure explicit high-value groups are included if they somehow weren't caught
-    $mandatoryGroups = @("Domain Admins", "Enterprise Admins", "Schema Admins", "DnsAdmins", "Group Policy Creator Owners")
-    $groups += $mandatoryGroups
-
-    # Unique sort
-    $groups = $groups | Select-Object -Unique
-    
-    Write-Log -Message "Target Groups for Cleanup: $($groups -join ', ')" -Level "INFO" -LogFile $LogFile
-
-    if ($groups.Count -gt 0) {
-        Write-Host "The following groups have been identified for member cleanup (all members except built-in Admin and Domain/Enterprise Admins will be removed):" -ForegroundColor Yellow
-        foreach ($g in $groups) {
-            Write-Host "  - $g" -ForegroundColor Cyan
-        }
-        $confirmCleanup = Read-Host "Do you want to proceed with cleaning up these privileged groups? (Y/N)"
-        if ($confirmCleanup -eq "Y") {
-            # Get Built-in Administrator Name to exclude it even if renamed
-            $builtInAdminName = "Administrator"
-            try {
-                $domainSid = (Get-ADDomain).DomainSID.Value
-                $builtInAdmin = Get-ADUser -Identity "$domainSid-500" -ErrorAction SilentlyContinue
-                if ($builtInAdmin) {
-                    $builtInAdminName = $builtInAdmin.SamAccountName
-                }
-            } catch {
-                Write-Log -Message "Could not determine built-in Administrator name by SID." -Level "WARNING" -LogFile $LogFile
-            }
-
-            foreach ($group in $groups) {
-                $excludedSamAccountNames = @("Administrator", "Domain Admins", "Enterprise Admins", $builtInAdminName) | Select-Object -Unique
-
-                try {
-                    $members = Get-ADGroupMember -Identity $group -ErrorAction SilentlyContinue | Where-Object {
-                        $excludedSamAccountNames -notcontains $_.SamAccountName
-                    }
-
-                    foreach ($member in $members) {
-                        try {
-                            Remove-ADGroupMember -Identity $group -Members $member -Confirm:$false -ErrorAction Stop
-                            Write-Log -Message "Removed $($member.SamAccountName) from $group." -Level "SUCCESS" -LogFile $LogFile
-                        }
-                        catch {
-                            Write-Log -Message "Failed to remove group member $($member.SamAccountName) from $group. Reason: $_" -Level "ERROR" -LogFile $LogFile
-                        }
-                    }
-                } catch {
-                    Write-Log -Message "Group $group not found or error accessing it." -Level "WARNING" -LogFile $LogFile
-                }
-            }
-        } else {
-            Write-Log -Message "Skipping privileged group member cleanup per user request." -Level "INFO" -LogFile $LogFile
-        }
-    } else {
-        Write-Log -Message "No privileged groups identified for cleanup." -Level "INFO" -LogFile $LogFile
-    }
+    Write-Log -Message "Skipping privileged group member cleanup to avoid breaking delegated/admin access." -Level "WARNING" -LogFile $LogFile
 
     # --- 3. Kerberos Pre-authentication ---
     Write-Log -Message "Enabling Kerberos Pre-authentication..." -Level "INFO" -LogFile $LogFile
@@ -330,30 +190,7 @@ if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType=
     }
 
     # Reset ACLs on Common Objects (Aggressive)
-    Write-Log -Message "Resetting ACLs on Domains, Computers, Users, Groups (Aggressive)..." -Level "INFO" -LogFile $LogFile
-    try {
-        # Helper to reset ACLs using dsacls
-        function Reset-DACL {
-            param($DistinguishedName)
-            $null = dsacls "$DistinguishedName" /resetDefaultDACL /resetDefaultSACL 2>&1
-        }
-
-        Get-ADDomain | ForEach-Object {
-            Reset-DACL $_.DistinguishedName
-            Reset-DACL "CN=Builtin,$($_.DistinguishedName)"
-            Reset-DACL "$($_.ComputersContainer)"
-            Reset-DACL "$($_.DomainControllersContainer)"
-            Reset-DACL "$($_.UsersContainer)"
-            Reset-DACL "$($_.SystemsContainer)"
-        }
-        Get-ADComputer -Filter * | ForEach-Object { Reset-DACL $_.DistinguishedName }
-        Get-ADUser -Filter * | ForEach-Object { Reset-DACL $_.DistinguishedName }
-        Get-ADGroup -Filter * | ForEach-Object { Reset-DACL $_.DistinguishedName }
-        
-        Write-Log -Message "Reset Default DACLs/SACLs on AD objects." -Level "SUCCESS" -LogFile $LogFile
-    } catch {
-        Write-Log -Message "Failed to reset ACLs: $_" -Level "ERROR" -LogFile $LogFile
-    }
+    Write-Log -Message "Skipping aggressive ACL resets to avoid removing delegated permissions." -Level "WARNING" -LogFile $LogFile
 
     # Mark non-DC computers as not trusted for delegation
     try {
@@ -377,35 +214,7 @@ if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType=
     }
 
     # User Property Hardening (AES256, No Delegation, etc.)
-    Write-Log -Message "Hardening User Properties (AES256, No Delegation)..." -Level "INFO" -LogFile $LogFile
-    try {
-        $currentUser = $env:USERNAME
-        Get-ADUser -Filter * | Where-Object { $_.SamAccountName -ne $currentUser -and $_.SamAccountName -ne "krbtgt" } | ForEach-Object {
-            Set-ADUser $_ -TrustedForDelegation $false `
-                          -AllowReversiblePasswordEncryption $false `
-                          -CannotChangePassword $false `
-                          -ChangePasswordAtLogon $false `
-                          -CompoundIdentitySupported $true `
-                          -KerberosEncryptionType AES256 `
-                          -PasswordNeverExpires $false `
-                          -PasswordNotRequired $false `
-                          -SmartcardLogonRequired $false `
-                          -AccountNotDelegated $true `
-                          -Clear scriptPath `
-                          -ErrorAction SilentlyContinue
-            
-            Set-ADAccountControl $_ -DoesNotRequirePreAuth $false `
-                                    -AllowReversiblePasswordEncryption $false `
-                                    -TrustedForDelegation $false `
-                                    -TrustedToAuthForDelegation $false `
-                                    -UseDESKeyOnly $false `
-                                    -AccountNotDelegated $true `
-                                    -ErrorAction SilentlyContinue
-        }
-        Write-Log -Message "User properties hardened." -Level "SUCCESS" -LogFile $LogFile
-    } catch {
-        Write-Log -Message "Failed to harden user properties: $_" -Level "ERROR" -LogFile $LogFile
-    }
+    Write-Log -Message "Skipping user property hardening that forces delegation/encryption changes." -Level "WARNING" -LogFile $LogFile
 
     # Clear SID History & SPNs
     try {
@@ -484,42 +293,7 @@ if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType=
     }
 
     # --- 13. Protected Users Group (Privileged Accounts) ---
-    Write-Log -Message "Adding Admins to Protected Users group..." -Level "INFO" -LogFile $LogFile
-    try {
-        $protectedGroup = Get-ADGroup -Identity "Protected Users" -ErrorAction SilentlyContinue
-        if ($protectedGroup) {
-            # Get current members to avoid duplicate attempts/logs
-            $currentProtectedMembers = Get-ADGroupMember -Identity "Protected Users" | Select-Object -ExpandProperty SamAccountName
-
-            # Dynamically identify privileged groups (Protected Groups have AdminCount=1)
-            # This ensures we catch all high-privilege groups defined by AD (SDProp), not just a hardcoded list.
-            $adminGroups = Get-ADGroup -Filter {AdminCount -eq 1}
-            foreach ($g in $adminGroups) {
-                try {
-                    $members = Get-ADGroupMember -Identity $g -Recursive -ErrorAction SilentlyContinue
-                    foreach ($m in $members) {
-                        if ($m.ObjectClass -eq "user" -and $m.SamAccountName -ne "krbtgt" -and $m.SamAccountName -ne "Administrator" -and $m.SamAccountName -notin $currentProtectedMembers) {
-                            try {
-                                Add-ADGroupMember -Identity "Protected Users" -Members $m -ErrorAction Stop
-                                Write-Log -Message "Added $($m.SamAccountName) to Protected Users." -Level "SUCCESS" -LogFile $LogFile
-                                $currentProtectedMembers += $m.SamAccountName # Update local list
-                            } catch {
-                                Write-Log -Message "Failed to add $($m.SamAccountName) to Protected Users: $_" -Level "ERROR" -LogFile $LogFile
-                            }
-                        }
-                    }
-                } catch {
-                    Write-Log -Message "Group $g not found or empty." -Level "INFO" -LogFile $LogFile
-                }
-            }
-
-            # Dynamic check for other high-privilege accounts (e.g. AdminCount=1) could be added here
-            # For now, we rely on the standard admin groups defined above.
-
-        }
-    } catch {
-        Write-Log -Message "Failed to update Protected Users: $_" -Level "ERROR" -LogFile $LogFile
-    }
+    Write-Log -Message "Skipping Protected Users mass-add to avoid authentication breakage." -Level "WARNING" -LogFile $LogFile
 
     # --- 14. Clear RODC Allowed Group ---
     Write-Log -Message "Clearing 'Allowed RODC Password Replication Group'..." -Level "INFO" -LogFile $LogFile
@@ -609,78 +383,6 @@ if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType=
     }
 
     # --- 16. DCSync Attack Mitigation ---
-    Write-Log -Message "Mitigating DCSync attack vectors..." -Level "INFO" -LogFile $LogFile
-    try {
-        # DCSync requires "Replicating Directory Changes" and "Replicating Directory Changes All" permissions
-        # These should ONLY be granted to Domain Controllers and specific admin accounts
+    Write-Log -Message "Skipping DCSync permission pruning to avoid breaking replication tooling." -Level "WARNING" -LogFile $LogFile
 
-        $domainDN = (Get-ADDomain).DistinguishedName
-        $dcSyncPermissions = @(
-            "1131f6aa-9c07-11d1-f79f-00c04fc2dcd2",  # DS-Replication-Get-Changes
-            "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2",  # DS-Replication-Get-Changes-All
-            "89e95b76-444d-4c62-991a-0facbeda640c"   # DS-Replication-Get-Changes-In-Filtered-Set
-        )
-
-        # Get ACL for domain root
-        $acl = Get-Acl -Path "AD:\$domainDN"
-        $modified = $false
-
-        # Whitelist: Domain Controllers, Enterprise Domain Controllers, Administrators
-        $allowedPrincipals = @()
-        
-        # Add Well-known SIDs first (CRITICAL: Must happen before potentially failing Get-ADGroup calls)
-        $allowedPrincipals += New-Object System.Security.Principal.SecurityIdentifier("S-1-5-9")  # Enterprise Domain Controllers
-        $allowedPrincipals += New-Object System.Security.Principal.SecurityIdentifier("S-1-5-18") # SYSTEM
-        
-        try {
-            $allowedPrincipals += (Get-ADGroup "Domain Controllers").SID
-            $allowedPrincipals += (Get-ADGroup "Enterprise Domain Controllers" -ErrorAction SilentlyContinue).SID
-            $allowedPrincipals += (Get-ADGroup "Administrators").SID
-        }
-        catch {
-            Write-Log -Message "Error resolving some admin groups (safe to ignore if well-known SIDs are present): $_" -Level "WARNING" -LogFile $LogFile
-        }
-
-        # Check all ACEs for dangerous DCSync permissions
-        $accessRules = $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
-        foreach ($rule in $accessRules) {
-            if ($rule.ObjectType -in $dcSyncPermissions) {
-                # Check if this identity is NOT in our whitelist
-                $isAllowed = $false
-                foreach ($allowedSid in $allowedPrincipals) {
-                    if ($rule.IdentityReference -eq $allowedSid) {
-                        $isAllowed = $true
-                        break
-                    }
-                }
-
-                if (-not $isAllowed) {
-                    try {
-                        $identityName = $rule.IdentityReference.Translate([System.Security.Principal.NTAccount]).Value
-                        Write-Log -Message "Removing DCSync permission from unauthorized principal: $identityName" -Level "WARNING" -LogFile $LogFile
-                        $acl.RemoveAccessRule($rule) | Out-Null
-                        $modified = $true
-                    }
-                    catch {
-                        Write-Log -Message "Could not translate or remove SID: $($rule.IdentityReference)" -Level "WARNING" -LogFile $LogFile
-                    }
-                }
-            }
-        }
-
-        if ($modified) {
-            Set-Acl -Path "AD:\$domainDN" -AclObject $acl
-            Write-Log -Message "DCSync permissions removed from unauthorized principals." -Level "SUCCESS" -LogFile $LogFile
-        }
-        else {
-            Write-Log -Message "No unauthorized DCSync permissions found." -Level "SUCCESS" -LogFile $LogFile
-        }
-    }
-    catch {
-        Write-Log -Message "Failed to mitigate DCSync attack: $_" -Level "ERROR" -LogFile $LogFile
-    }
-
-} else {
-    Write-Log -Message "Not a Domain Controller. Skipping AD Account Policies." -Level "WARNING" -LogFile $LogFile
-}
 

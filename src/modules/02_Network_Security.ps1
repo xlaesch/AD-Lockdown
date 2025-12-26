@@ -41,9 +41,8 @@ try {
     
     # Enable SMB Signing (Server & Workstation)
     Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" -Name "EnableSecuritySignature" -Value 1 -Type DWord
-    Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" -Name "RequireSecuritySignature" -Value 1 -Type DWord
     Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" -Name "EnableSecuritySignature" -Value 1 -Type DWord
-    Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" -Name "RequireSecuritySignature" -Value 1 -Type DWord
+    Write-Log -Message "Skipping SMB signing 'Require' to preserve compatibility with legacy clients." -Level "WARNING" -LogFile $LogFile
 
     # Restrict Null Session Access
     Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters" -Name "RestrictNullSessAccess" -Value 1 -Type DWord
@@ -69,15 +68,7 @@ try {
     Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters" -Name "EnableMDNS" -Value 0 -Type DWord
 
     # Hardened UNC Paths (A-HardenedPaths / MS15-011 / MS15-014)
-    $hardenedPathsKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\NetworkProvider\HardenedPaths"
-    if (-not (Test-Path $hardenedPathsKey)) {
-        New-Item -Path $hardenedPathsKey -Force | Out-Null
-    }
-    # Require Mutual Authentication, Integrity, AND Privacy (Encryption) for NETLOGON and SYSVOL
-    Set-ItemProperty -Path $hardenedPathsKey -Name "\\*\NETLOGON" -Value "RequireMutualAuthentication=1, RequireIntegrity=1, RequirePrivacy=1" -Type String -Force
-    Set-ItemProperty -Path $hardenedPathsKey -Name "\\*\SYSVOL" -Value "RequireMutualAuthentication=1, RequireIntegrity=1, RequirePrivacy=1" -Type String -Force
-    
-    Write-Log -Message "Hardened UNC Paths configured (Integrity/MutualAuth/Privacy)." -Level "SUCCESS" -LogFile $LogFile
+    Write-Log -Message "Skipping hardened UNC paths for SYSVOL/NETLOGON to avoid client compatibility issues." -Level "WARNING" -LogFile $LogFile
 
     Write-Log -Message "Extended SMB/Network hardening applied." -Level "SUCCESS" -LogFile $LogFile
 } catch {
@@ -97,121 +88,117 @@ try {
     # 2147483644 = AES128 + AES256 + RC4
     Set-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters" -Name "SupportedEncryptionTypes" -Value 2147483644 -Type DWord
 
-    if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType='2'") {
-        # LDAP Server Integrity (Signing)
-        Set-RegistryValue -Path "HKLM:\System\CurrentControlSet\Services\NTDS\Parameters" -Name "LDAPServerIntegrity" -Value 2 -Type DWord
-        
-        # LDAP Channel Binding
-        Set-RegistryValue -Path "HKLM:\System\CurrentControlSet\Services\NTDS\Parameters" -Name "LdapEnforceChannelBinding" -Value 2 -Type DWord
+    # LDAP Server Integrity (Signing)
+    Set-RegistryValue -Path "HKLM:\System\CurrentControlSet\Services\NTDS\Parameters" -Name "LDAPServerIntegrity" -Value 2 -Type DWord
+    
+    # LDAP Channel Binding
+    Write-Log -Message "Skipping LDAP channel binding enforcement to avoid breaking legacy LDAP clients." -Level "WARNING" -LogFile $LogFile
 
-        # Disable Unauthenticated LDAP (dsHeuristics)
-        $DN = ("CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration," + (Get-ADDomain).DistinguishedName)
-        $DirectoryService = Get-ADObject -Identity $DN -Properties dsHeuristics
-        $Heuristic = $DirectoryService.dsHeuristics
-        if (-not $Heuristic) { $Heuristic = "0000000" }
-        if ($Heuristic.Length -ge 7) {
-            $Array = $Heuristic.ToCharArray()
-            $Array[6] = "0"
-            $Heuristic = "$Array".Replace(" ", "")
-            Set-ADObject -Identity $DirectoryService -Replace @{dsHeuristics = $Heuristic}
-            Write-Log -Message "Disabled Anonymous LDAP via dsHeuristics." -Level "SUCCESS" -LogFile $LogFile
-        }
+    # Disable Unauthenticated LDAP (dsHeuristics)
+    $DN = ("CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration," + (Get-ADDomain).DistinguishedName)
+    $DirectoryService = Get-ADObject -Identity $DN -Properties dsHeuristics
+    $Heuristic = $DirectoryService.dsHeuristics
+    if (-not $Heuristic) { $Heuristic = "0000000" }
+    if ($Heuristic.Length -ge 7) {
+        $Array = $Heuristic.ToCharArray()
+        $Array[6] = "0"
+        $Heuristic = "$Array".Replace(" ", "")
+        Set-ADObject -Identity $DirectoryService -Replace @{dsHeuristics = $Heuristic}
+        Write-Log -Message "Disabled Anonymous LDAP via dsHeuristics." -Level "SUCCESS" -LogFile $LogFile
     }
 } catch {
     Write-Log -Message "Failed to apply LDAP/Kerberos hardening: $_" -Level "ERROR" -LogFile $LogFile
 }
 
-# --- 4. DNS Security (DC Only) ---
-if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType='2'") {
-    Write-Log -Message "Applying DNS Security..." -Level "INFO" -LogFile $LogFile
-    try {
-        # SIGRed Mitigation
-        Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\DNS\Parameters" -Name "TcpReceivePacketSize" -Value 0xFF00 -Type DWord
+# --- 4. DNS Security ---
+Write-Log -Message "Applying DNS Security..." -Level "INFO" -LogFile $LogFile
+try {
+    # SIGRed Mitigation
+    Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\DNS\Parameters" -Name "TcpReceivePacketSize" -Value 0xFF00 -Type DWord
 
-        # Global Query Block List
-        dnscmd /config /enableglobalqueryblocklist 1 | Out-Null
+    # Global Query Block List
+    dnscmd /config /enableglobalqueryblocklist 1 | Out-Null
 
-        # Response Rate Limiting
-        if (Get-Command Set-DnsServerResponseRateLimiting -ErrorAction SilentlyContinue) {
-            Set-DnsServerRRL -Mode Enable -Force -ErrorAction SilentlyContinue
-        }
-
-        # DNS Socket Pool Size (Anti-DDoS)
-        dnscmd /config /SocketPoolSize 10000 | Out-Null
-        Write-Log -Message "DNS Socket Pool Size set to 10000." -Level "SUCCESS" -LogFile $LogFile
-
-        # DNS Cache Locking (Anti-Cache Poisoning)
-        dnscmd /config /CacheLockingPercent 100 | Out-Null
-        Write-Log -Message "DNS Cache Locking set to 100%." -Level "SUCCESS" -LogFile $LogFile
-
-        Write-Log -Message "DNS Security settings applied." -Level "SUCCESS" -LogFile $LogFile
-    } catch {
-        Write-Log -Message "Failed to apply DNS Security: $_" -Level "ERROR" -LogFile $LogFile
+    # Response Rate Limiting
+    if (Get-Command Set-DnsServerResponseRateLimiting -ErrorAction SilentlyContinue) {
+        Set-DnsServerRRL -Mode Enable -Force -ErrorAction SilentlyContinue
     }
 
-    # --- 4.1 Advanced DNS Hardening (Legacy DNS.ps1) ---
-    Write-Log -Message "Applying Advanced DNS Hardening..." -Level "INFO" -LogFile $LogFile
-    try {
-        # Registry Hardening
-        Set-RegistryValue -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient" -Name "EnableMulticast" -Value 0 -Type DWord
-        Set-RegistryValue -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient" -Name "DisableSmartNameResolution" -Value 1 -Type DWord
-        Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters" -Name "DisableParallelAandAAAA" -Value 1 -Type DWord
+    # DNS Socket Pool Size (Anti-DDoS)
+    dnscmd /config /SocketPoolSize 10000 | Out-Null
+    Write-Log -Message "DNS Socket Pool Size set to 10000." -Level "SUCCESS" -LogFile $LogFile
 
-        # DNS Server Configuration (dnscmd equivalents)
-        # Using Set-DnsServer* cmdlets where possible for cleaner PowerShell
-        
-        # Recursion & Security
-        Set-DnsServerRecursion -Enable $False -SecureResponse $True -ErrorAction SilentlyContinue
-        
-        # Diagnostics
-        Set-DnsServerDiagnostics -EventLogLevel 4 -UseSystemEventLog $True -EnableLogFileRollover $False -ErrorAction SilentlyContinue
-        
-        # Cache & TTL
-        Set-DnsServerCache -MaxTtl "24.00:00:00" -MaxNegativeTtl "00:15:00" -PollutionProtection $True -ErrorAction SilentlyContinue
-        
-        # Zone Transfers (Secure Only)
-        # This iterates all zones and sets them to Secure Only updates and restricts transfers
-        $zones = Get-DnsServerZone
-        foreach ($zone in $zones) {
-            if ($zone.ZoneType -eq "Primary" -and $zone.IsAutoCreated -eq $false) {
-                try {
-                    Set-DnsServerPrimaryZone -Name $zone.ZoneName -DynamicUpdate Secure -ErrorAction SilentlyContinue
-                    Set-DnsServerZoneTransfer -Name $zone.ZoneName -SecureSecondaries TransferToSecureServers -ErrorAction SilentlyContinue
-                } catch {
-                    Write-Log -Message "Failed to harden zone $($zone.ZoneName): $_" -Level "WARNING" -LogFile $LogFile
-                }
+    # DNS Cache Locking (Anti-Cache Poisoning)
+    dnscmd /config /CacheLockingPercent 100 | Out-Null
+    Write-Log -Message "DNS Cache Locking set to 100%." -Level "SUCCESS" -LogFile $LogFile
+
+    Write-Log -Message "DNS Security settings applied." -Level "SUCCESS" -LogFile $LogFile
+} catch {
+    Write-Log -Message "Failed to apply DNS Security: $_" -Level "ERROR" -LogFile $LogFile
+}
+
+# --- 4.1 Advanced DNS Hardening (Legacy DNS.ps1) ---
+Write-Log -Message "Applying Advanced DNS Hardening..." -Level "INFO" -LogFile $LogFile
+try {
+    # Registry Hardening
+    Set-RegistryValue -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient" -Name "EnableMulticast" -Value 0 -Type DWord
+    Set-RegistryValue -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient" -Name "DisableSmartNameResolution" -Value 1 -Type DWord
+    Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters" -Name "DisableParallelAandAAAA" -Value 1 -Type DWord
+
+    # DNS Server Configuration (dnscmd equivalents)
+    # Using Set-DnsServer* cmdlets where possible for cleaner PowerShell
+    
+    # Recursion & Security
+    Write-Log -Message "Skipping DNS recursion disable to avoid resolver outages." -Level "WARNING" -LogFile $LogFile
+    
+    # Diagnostics
+    Set-DnsServerDiagnostics -EventLogLevel 4 -UseSystemEventLog $True -EnableLogFileRollover $False -ErrorAction SilentlyContinue
+    
+    # Cache & TTL
+    Set-DnsServerCache -MaxTtl "24.00:00:00" -MaxNegativeTtl "00:15:00" -PollutionProtection $True -ErrorAction SilentlyContinue
+    
+    # Zone Transfers (Secure Only)
+    # This iterates all zones and sets them to Secure Only updates and restricts transfers
+    $zones = Get-DnsServerZone
+    foreach ($zone in $zones) {
+        if ($zone.ZoneType -eq "Primary" -and $zone.IsAutoCreated -eq $false) {
+            try {
+                Set-DnsServerPrimaryZone -Name $zone.ZoneName -DynamicUpdate Secure -ErrorAction SilentlyContinue
+                Set-DnsServerZoneTransfer -Name $zone.ZoneName -SecureSecondaries TransferToSecureServers -ErrorAction SilentlyContinue
+            } catch {
+                Write-Log -Message "Failed to harden zone $($zone.ZoneName): $_" -Level "WARNING" -LogFile $LogFile
             }
         }
-
-        # Scavenging
-        Set-DnsServerScavenging -ScavengingInterval "7.00:00:00" -ErrorAction SilentlyContinue
-
-        # Additional dnscmd configs from legacy script
-        # Some of these don't have direct cmdlet equivalents or are obscure
-        dnscmd /config /bindsecondaries 0 | Out-Null
-        dnscmd /config /bootmethod 3 | Out-Null
-        dnscmd /config /disableautoreversezones 1 | Out-Null
-        dnscmd /config /disablensrecordsautocreation 1 | Out-Null
-        dnscmd /config /enableglobalnamessupport 0 | Out-Null
-        dnscmd /config /enableglobalqueryblocklist 1 | Out-Null
-        dnscmd /config /globalqueryblocklist isatap wpad | Out-Null
-        dnscmd /config /roundrobin 1 | Out-Null
-        dnscmd /config /secureresponses 1 | Out-Null
-        dnscmd /config /strictfileparsing 1 | Out-Null
-        dnscmd /config /writeauthorityns 0 | Out-Null
-
-        # ServerLevelPluginDll Check
-        $dnsParams = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\DNS\Parameters"
-        if ($dnsParams.ServerLevelPluginDll) {
-            Write-Log -Message "WARNING: ServerLevelPluginDll found: $($dnsParams.ServerLevelPluginDll). This is often malicious." -Level "WARNING" -LogFile $LogFile
-            # Legacy script asks to delete. We will log heavily.
-            # Remove-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\DNS\Parameters" -Name "ServerLevelPluginDll" -Force
-        }
-
-        Write-Log -Message "Advanced DNS Hardening applied." -Level "SUCCESS" -LogFile $LogFile
-    } catch {
-        Write-Log -Message "Failed to apply Advanced DNS Hardening: $_" -Level "ERROR" -LogFile $LogFile
     }
+
+    # Scavenging
+    Set-DnsServerScavenging -ScavengingInterval "7.00:00:00" -ErrorAction SilentlyContinue
+
+    # Additional dnscmd configs from legacy script
+    # Some of these don't have direct cmdlet equivalents or are obscure
+    dnscmd /config /bindsecondaries 0 | Out-Null
+    dnscmd /config /bootmethod 3 | Out-Null
+    dnscmd /config /disableautoreversezones 1 | Out-Null
+    dnscmd /config /disablensrecordsautocreation 1 | Out-Null
+    dnscmd /config /enableglobalnamessupport 0 | Out-Null
+    dnscmd /config /enableglobalqueryblocklist 1 | Out-Null
+    dnscmd /config /globalqueryblocklist isatap wpad | Out-Null
+    dnscmd /config /roundrobin 1 | Out-Null
+    dnscmd /config /secureresponses 1 | Out-Null
+    dnscmd /config /strictfileparsing 1 | Out-Null
+    dnscmd /config /writeauthorityns 0 | Out-Null
+
+    # ServerLevelPluginDll Check
+    $dnsParams = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\DNS\Parameters"
+    if ($dnsParams.ServerLevelPluginDll) {
+        Write-Log -Message "WARNING: ServerLevelPluginDll found: $($dnsParams.ServerLevelPluginDll). This is often malicious." -Level "WARNING" -LogFile $LogFile
+        # Legacy script asks to delete. We will log heavily.
+        # Remove-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\DNS\Parameters" -Name "ServerLevelPluginDll" -Force
+    }
+
+    Write-Log -Message "Advanced DNS Hardening applied." -Level "SUCCESS" -LogFile $LogFile
+} catch {
+    Write-Log -Message "Failed to apply Advanced DNS Hardening: $_" -Level "ERROR" -LogFile $LogFile
 }
 
 # --- 5. Zerologon Mitigation & Netlogon Hardening ---
@@ -280,39 +267,23 @@ catch {
 # --- 2. AD Firewall Rules ---
 Write-Log -Message "Configuring AD Firewall Rules..." -Level "INFO" -LogFile $LogFile
 
-# Only run on DC or where AD services are present
-if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType='2'") {
-    
-    # Enable AD DS Group
-    try {
-        netsh a f s r group="Active Directory Domain Services" new enable=yes
-        Write-Log -Message "Enabled 'Active Directory Domain Services' firewall group." -Level "SUCCESS" -LogFile $LogFile
-    } catch {
-        Write-Log -Message "Failed to enable AD DS firewall group." -Level "ERROR" -LogFile $LogFile
-    }
+# Enable AD DS Group
+try {
+    netsh a f s r group="Active Directory Domain Services" new enable=yes
+    Write-Log -Message "Enabled 'Active Directory Domain Services' firewall group." -Level "SUCCESS" -LogFile $LogFile
+} catch {
+    Write-Log -Message "Failed to enable AD DS firewall group." -Level "ERROR" -LogFile $LogFile
+}
 
-    # Restrict AD DS to Local Subnet (Logic from zero.ps1)
-    # Note: $localsubnet needs to be defined. In zero.ps1 it was empty initially. 
-    # We will assume we want to restrict to local subnet if possible, but without a defined subnet variable, 
-    # we might break things if we just pass empty string. 
-    # For now, I will comment out the restriction part unless we have a config for it, 
-    # but I will keep the structure as requested from zero.ps1.
-    
-    # In zero.ps1: $localsubnet="" (at top). 
-    # If we want to implement this, we need to calculate the subnet or read from config.
-    # I will skip the specific subnet restriction to avoid locking out legitimate traffic without config.
-    
-    # Allow DNS Inbound on DC
-    try {
-        netsh a f a r n=DNS_IN dir=in a=allow prot=UDP localport=53
-        Write-Log -Message "Allowed DNS Inbound (UDP 53)." -Level "SUCCESS" -LogFile $LogFile
-    } catch {
-        Write-Log -Message "Failed to allow DNS Inbound." -Level "ERROR" -LogFile $LogFile
-    }
+# Allow DNS Inbound on DC
+try {
+    netsh a f a r n=DNS_IN dir=in a=allow prot=UDP localport=53
+    Write-Log -Message "Allowed DNS Inbound (UDP 53)." -Level "SUCCESS" -LogFile $LogFile
+} catch {
+    Write-Log -Message "Failed to allow DNS Inbound." -Level "ERROR" -LogFile $LogFile
 }
 
 # General Block Policy (from zero.ps1 - careful with this!)
-# netsh a s allp firewallpolicy "blockinbound,blockoutbound" 
 # The above line is very aggressive. zero.ps1 had it at the end. 
 # I will include it but commented out or with a warning, as it requires all allow rules to be perfect.
 # Given the user said "keep AD hardening", this is a general firewall setting but critical for the "Lockdown" aspect.
@@ -335,27 +306,25 @@ try {
     Write-Log -Message "Failed to enable firewall logging." -Level "ERROR" -LogFile $LogFile
 }
 
-# --- 8. Network Share Cleanup (DC-Specific) ---
-if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType='2'") {
-    Write-Log -Message "Removing Unnecessary Network Shares..." -Level "INFO" -LogFile $LogFile
-    try {
-        $essentialShares = @("ADMIN$", "C$", "IPC$", "NETLOGON", "SYSVOL")
-        $sharesToRemove = Get-SmbShare | Where-Object { $_.Name -notin $essentialShares }
+# --- 8. Network Share Cleanup ---
+Write-Log -Message "Removing Unnecessary Network Shares..." -Level "INFO" -LogFile $LogFile
+try {
+    $essentialShares = @("ADMIN$", "C$", "IPC$", "NETLOGON", "SYSVOL")
+    $sharesToRemove = Get-SmbShare | Where-Object { $_.Name -notin $essentialShares }
 
-        foreach ($share in $sharesToRemove) {
-            try {
-                Remove-SmbShare -Name $share.Name -Force -ErrorAction Stop
-                Write-Log -Message "Removed network share: $($share.Name)" -Level "SUCCESS" -LogFile $LogFile
-            }
-            catch {
-                Write-Log -Message "Failed to remove share $($share.Name): $_" -Level "WARNING" -LogFile $LogFile
-            }
+    foreach ($share in $sharesToRemove) {
+        try {
+            Remove-SmbShare -Name $share.Name -Force -ErrorAction Stop
+            Write-Log -Message "Removed network share: $($share.Name)" -Level "SUCCESS" -LogFile $LogFile
         }
-        Write-Log -Message "Network share cleanup completed." -Level "SUCCESS" -LogFile $LogFile
+        catch {
+            Write-Log -Message "Failed to remove share $($share.Name): $_" -Level "WARNING" -LogFile $LogFile
+        }
     }
-    catch {
-        Write-Log -Message "Failed during network share cleanup: $_" -Level "ERROR" -LogFile $LogFile
-    }
+    Write-Log -Message "Network share cleanup completed." -Level "SUCCESS" -LogFile $LogFile
+}
+catch {
+    Write-Log -Message "Failed during network share cleanup: $_" -Level "ERROR" -LogFile $LogFile
 }
 
 # --- 9. Time Synchronization (Critical for Kerberos) ---

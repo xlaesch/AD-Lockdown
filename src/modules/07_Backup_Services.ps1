@@ -11,12 +11,6 @@ if (-not (Get-Command Write-Log -ErrorAction SilentlyContinue)) {
 
 Write-Log -Message "Starting Backup Services..." -Level "INFO" -LogFile $LogFile
 
-# Only run on Domain Controllers
-if (-not (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType='2'")) {
-    Write-Log -Message "Not a Domain Controller. Skipping backup services." -Level "WARNING" -LogFile $LogFile
-    return
-}
-
 # --- 1. Create Backup Directory Structure ---
 Write-Log -Message "Creating backup directory structure..." -Level "INFO" -LogFile $LogFile
 $backupRoot = "C:\CCDC"

@@ -10,7 +10,9 @@
 param (
     [string]$ConfigFile = "conf/defaults.json",
     [string[]]$IncludeModule,
-    [switch]$All
+    [switch]$All,
+    [Alias("debug")]
+    [switch]$DebugMode
 )
 
 $ScriptRoot = $PSScriptRoot
@@ -27,16 +29,68 @@ if (-not (Test-Path $LogDir)) {
 . "$ScriptRoot/src/functions/Set-RegistryValue.ps1"
 . "$ScriptRoot/src/functions/New-RandomPassword.ps1"
 . "$ScriptRoot/src/functions/Install-Sysinternals.ps1"
+. "$ScriptRoot/src/functions/Select-ArrowMenu.ps1"
 
 Write-Log -Message "=== Starting AD Hardening Process ===" -Level "INFO" -LogFile $LogFile
 
+# Extract tool bundles before elevation attempts
+$ToolsDir = "$PSScriptRoot/tools"
+if (-not (Test-Path $ToolsDir)) {
+    New-Item -ItemType Directory -Path $ToolsDir -Force | Out-Null
+}
+
+$RootToolsZip = "$PSScriptRoot/tools.zip"
+if (Test-Path $RootToolsZip) {
+    $MarkerFile = "$ToolsDir/tools.zip.extracted"
+    if (-not (Test-Path $MarkerFile)) {
+        Write-Log -Message "Extracting tools.zip..." -Level "INFO" -LogFile $LogFile
+        try {
+            Expand-Archive -Path $RootToolsZip -DestinationPath $ToolsDir -Force
+            New-Item -Path $MarkerFile -ItemType File -Force | Out-Null
+            Write-Log -Message "Extracted tools.zip to $ToolsDir" -Level "INFO" -LogFile $LogFile
+        } catch {
+            Write-Log -Message "Failed to extract tools.zip: $_" -Level "ERROR" -LogFile $LogFile
+        }
+    }
+}
+
+if (Test-Path $ToolsDir) {
+    $ZipFiles = Get-ChildItem -Path $ToolsDir -Filter "*.zip"
+    foreach ($Zip in $ZipFiles) {
+        $MarkerFile = "$($Zip.FullName).extracted"
+        if (-not (Test-Path $MarkerFile)) {
+            Write-Log -Message "Extracting $($Zip.Name)..." -Level "INFO" -LogFile $LogFile
+            try {
+                Expand-Archive -Path $Zip.FullName -DestinationPath $ToolsDir -Force
+                New-Item -Path $MarkerFile -ItemType File -Force | Out-Null
+                Write-Log -Message "Extracted $($Zip.Name) to $ToolsDir" -Level "INFO" -LogFile $LogFile
+            } catch {
+                Write-Log -Message "Failed to extract $($Zip.Name): $_" -Level "ERROR" -LogFile $LogFile
+            }
+        }
+    }
+}
+
+# Debug mode skips DC validation and Sysinternals download.
+if ($DebugMode) {
+    Write-Log -Message "Debug mode enabled: skipping DC validation and Sysinternals download." -Level "WARNING" -LogFile $LogFile
+} else {
+    $isDomainController = (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType='2'")
+    if (-not $isDomainController) {
+        Write-Log -Message "This tool must be run on a Domain Controller. Exiting." -Level "ERROR" -LogFile $LogFile
+        exit
+    }
+}
+
 # Install Sysinternals
 $SysinternalsDir = "$PSScriptRoot/tools"
-try {
-    Install-Sysinternals -DestinationPath $SysinternalsDir -LogFile $LogFile
-}
-catch {
-    Write-Warning "Sysinternals (PSTools) installation failed. Check logs for details."
+if (-not $DebugMode) {
+    try {
+        Install-Sysinternals -DestinationPath $SysinternalsDir -LogFile $LogFile
+    }
+    catch {
+        Write-Warning "Sysinternals (PSTools) installation failed. Check logs for details."
+    }
 }
 
 # Check for SYSTEM privileges and Relaunch if needed
@@ -46,6 +100,9 @@ $p = New-Object System.Security.Principal.WindowsPrincipal($id)
 $IsSystem = $p.IsInRole([System.Security.Principal.SecurityIdentifier]"S-1-5-18")
 
 if (-not $IsSystem) {
+    if ($DebugMode) {
+        Write-Log -Message "Debug mode: skipping SYSTEM elevation." -Level "WARNING" -LogFile $LogFile
+    } else {
     Write-Log -Message "Not running as SYSTEM. Attempting to elevate using PsExec..." -Level "INFO" -LogFile $LogFile
     
     $PsExecPath = Join-Path $SysinternalsDir "PsExec.exe"
@@ -63,6 +120,7 @@ if (-not $IsSystem) {
          $modules = $IncludeModule -join ","
          $ArgsString += " -IncludeModule $modules" 
     }
+    if ($DebugMode) { $ArgsString += " -DebugMode" }
     
     # Launch as SYSTEM
     # -i: Interactive (so we can see the menu if needed)
@@ -80,27 +138,25 @@ if (-not $IsSystem) {
 
     # Cleanup Prompt
     Write-Host "Hardening complete." -ForegroundColor Green
-    $response = Read-Host "Do you want to remove PsExec from $SysinternalsDir? (Y/N)"
+    $response = Read-Host "Do you want to remove the extracted tools directory at $SysinternalsDir? (Y/N)"
     if ($response -eq "Y") {
-        $ToolsToRemove = @("PsExec.exe", "PsExec64.exe", "PSTools.zip")
-        foreach ($tool in $ToolsToRemove) {
-            $toolPath = Join-Path $SysinternalsDir $tool
-            if (Test-Path $toolPath) {
-                Remove-Item -Path $toolPath -Force -ErrorAction SilentlyContinue
-                Write-Log -Message "Removed $toolPath" -Level "INFO" -LogFile $LogFile
-            }
+        if (Test-Path $SysinternalsDir) {
+            Remove-Item -Path $SysinternalsDir -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Log -Message "Removed tools directory $SysinternalsDir" -Level "INFO" -LogFile $LogFile
         }
         Write-Host "Cleanup complete." -ForegroundColor Green
     }
 
     Write-Log -Message "Exiting parent process." -Level "INFO" -LogFile $LogFile
     exit
+    }
 }
 
 Write-Log -Message "Running as SYSTEM. Proceeding with hardening..." -Level "INFO" -LogFile $LogFile
 
 # Define Available Modules
 $AvailableModules = @(
+    "00_Password_Rotation.ps1",
     "01_Account_Policies.ps1",
     "02_Network_Security.ps1",
     "03_Service_Hardening.ps1",
@@ -127,23 +183,7 @@ elseif ($IncludeModule) {
     }
 }
 else {
-    # Interactive Menu
-    Write-Host "Select modules to run (comma-separated numbers, or 'all'):" -ForegroundColor Cyan
-    for ($i = 0; $i -lt $AvailableModules.Count; $i++) {
-        Write-Host "[$($i+1)] $($AvailableModules[$i])"
-    }
-    
-    $selection = Read-Host "Selection"
-    if ($selection -eq "all") {
-        $ModulesToExecute = $AvailableModules
-    } else {
-        $indices = $selection -split ","
-        foreach ($index in $indices) {
-            if ($index -match "^\d+$" -and [int]$index -le $AvailableModules.Count -and [int]$index -gt 0) {
-                $ModulesToExecute += $AvailableModules[[int]$index - 1]
-            }
-        }
-    }
+    $ModulesToExecute = Select-ArrowMenu -Title "Select modules to run" -Options $AvailableModules -MultiSelect -AllowSelectAll
 }
 
 # Remove duplicates

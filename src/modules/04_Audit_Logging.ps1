@@ -105,50 +105,48 @@ try {
     Write-Log -Message "Failed to configure LSASS/WDigest: $_" -Level "ERROR" -LogFile $LogFile
 }
 
-# --- 5. Advanced AD Object Auditing (DC Only) ---
-if (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType='2'") {
-    Write-Log -Message "Configuring Advanced AD Object Auditing..." -Level "INFO" -LogFile $LogFile
-    
-    function Set-ADObjectAudit {
-        param($DistinguishedName, $AuditRules)
-        try {
-            $Acl = Get-Acl -Path "AD:\$DistinguishedName" -Audit
-            if ($Acl) {
-                foreach ($Rule in $AuditRules) {
-                    $Acl.AddAuditRule($Rule)
-                }
-                Set-Acl -Path "AD:\$DistinguishedName" -AclObject $Acl
-                return $true
-            }
-        } catch {
-            Write-Log -Message "Failed to set audit on $DistinguishedName : $_" -Level "WARNING" -LogFile $LogFile
-        }
-        return $false
-    }
+# --- 5. Advanced AD Object Auditing ---
+Write-Log -Message "Configuring Advanced AD Object Auditing..." -Level "INFO" -LogFile $LogFile
 
+function Set-ADObjectAudit {
+    param($DistinguishedName, $AuditRules)
     try {
-        $DomainDN = (Get-ADDomain).DistinguishedName
-        $Everyone = New-Object System.Security.Principal.SecurityIdentifier([System.Security.Principal.WellKnownSidType]::WorldSid, $null)
-        
-        # 1. RID Manager Auditing
-        $RidManagerDN = "CN=RID Manager$,CN=System,$DomainDN"
-        $RidRule = New-Object System.DirectoryServices.ActiveDirectoryAuditRule($Everyone, [System.DirectoryServices.ActiveDirectoryRights]::GenericAll, [System.Security.AccessControl.AuditFlags]::Failure, [System.DirectoryServices.ActiveDirectorySecurityInheritance]::None)
-        Set-ADObjectAudit -DistinguishedName $RidManagerDN -AuditRules @($RidRule)
-
-        # 2. AdminSDHolder Auditing
-        $AdminSDHolderDN = "CN=AdminSDHolder,CN=System,$DomainDN"
-        $AdminSDRule = New-Object System.DirectoryServices.ActiveDirectoryAuditRule($Everyone, [System.DirectoryServices.ActiveDirectoryRights]::GenericAll, [System.Security.AccessControl.AuditFlags]::Failure, [System.DirectoryServices.ActiveDirectorySecurityInheritance]::None)
-        Set-ADObjectAudit -DistinguishedName $AdminSDHolderDN -AuditRules @($AdminSDRule)
-
-        # 3. Domain Controllers OU Auditing
-        $DCOU_DN = "OU=Domain Controllers,$DomainDN"
-        $DCRule = New-Object System.DirectoryServices.ActiveDirectoryAuditRule($Everyone, [System.DirectoryServices.ActiveDirectoryRights]::WriteDacl, [System.Security.AccessControl.AuditFlags]::Success, [System.DirectoryServices.ActiveDirectorySecurityInheritance]::None)
-        Set-ADObjectAudit -DistinguishedName $DCOU_DN -AuditRules @($DCRule)
-
-        Write-Log -Message "Advanced AD Object Auditing configured." -Level "SUCCESS" -LogFile $LogFile
+        $Acl = Get-Acl -Path "AD:\$DistinguishedName" -Audit
+        if ($Acl) {
+            foreach ($Rule in $AuditRules) {
+                $Acl.AddAuditRule($Rule)
+            }
+            Set-Acl -Path "AD:\$DistinguishedName" -AclObject $Acl
+            return $true
+        }
     } catch {
-        Write-Log -Message "Failed to configure Advanced AD Auditing: $_" -Level "ERROR" -LogFile $LogFile
+        Write-Log -Message "Failed to set audit on $DistinguishedName : $_" -Level "WARNING" -LogFile $LogFile
     }
+    return $false
+}
+
+try {
+    $DomainDN = (Get-ADDomain).DistinguishedName
+    $Everyone = New-Object System.Security.Principal.SecurityIdentifier([System.Security.Principal.WellKnownSidType]::WorldSid, $null)
+    
+    # 1. RID Manager Auditing
+    $RidManagerDN = "CN=RID Manager$,CN=System,$DomainDN"
+    $RidRule = New-Object System.DirectoryServices.ActiveDirectoryAuditRule($Everyone, [System.DirectoryServices.ActiveDirectoryRights]::GenericAll, [System.Security.AccessControl.AuditFlags]::Failure, [System.DirectoryServices.ActiveDirectorySecurityInheritance]::None)
+    Set-ADObjectAudit -DistinguishedName $RidManagerDN -AuditRules @($RidRule)
+
+    # 2. AdminSDHolder Auditing
+    $AdminSDHolderDN = "CN=AdminSDHolder,CN=System,$DomainDN"
+    $AdminSDRule = New-Object System.DirectoryServices.ActiveDirectoryAuditRule($Everyone, [System.DirectoryServices.ActiveDirectoryRights]::GenericAll, [System.Security.AccessControl.AuditFlags]::Failure, [System.DirectoryServices.ActiveDirectorySecurityInheritance]::None)
+    Set-ADObjectAudit -DistinguishedName $AdminSDHolderDN -AuditRules @($AdminSDRule)
+
+    # 3. Domain Controllers OU Auditing
+    $DCOU_DN = "OU=Domain Controllers,$DomainDN"
+    $DCRule = New-Object System.DirectoryServices.ActiveDirectoryAuditRule($Everyone, [System.DirectoryServices.ActiveDirectoryRights]::WriteDacl, [System.Security.AccessControl.AuditFlags]::Success, [System.DirectoryServices.ActiveDirectorySecurityInheritance]::None)
+    Set-ADObjectAudit -DistinguishedName $DCOU_DN -AuditRules @($DCRule)
+
+    Write-Log -Message "Advanced AD Object Auditing configured." -Level "SUCCESS" -LogFile $LogFile
+} catch {
+    Write-Log -Message "Failed to configure Advanced AD Auditing: $_" -Level "ERROR" -LogFile $LogFile
 }
 
 # --- 6. GPO Permission Check (Reporting) ---
