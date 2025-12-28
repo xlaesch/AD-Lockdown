@@ -55,4 +55,50 @@ try {
 # We will skip this unless absolutely necessary, or log it.
 Write-Log -Message "Legacy script requested NTDS restart. Skipping for safety to prevent DC downtime." -Level "WARNING" -LogFile $LogFile
 
+# --- 4. Audit and Revoke Certificates ---
+Write-Log -Message "Auditing Issued Certificates..." -Level "INFO" -LogFile $LogFile
+
+try {
+    $ca = Get-CertificationAuthority -ErrorAction SilentlyContinue
+    if ($ca) {
+        Write-Host "`n--- Issued Certificates on $($ca.Name) ---" -ForegroundColor Cyan
+        
+        # Fetch and display certificates
+        $certs = certutil -view -restrict "Disposition=20" -out "RequestID,RequesterName,CommonName,CertificateTemplate,NotAfter" csv
+        $certs | ForEach-Object { 
+            # Simple filter to show CSV data rows
+            if ($_ -match '^\s*"?\d+"?,') { Write-Host $_ }
+        }
+
+        Write-Host "`nWARNING: Revoking certificates will break authentication for services relying on them until new ones are issued." -ForegroundColor Red
+        $response = Read-Host "Do you want to REVOKE all these certificates to force re-issuance? (y/n)"
+        
+        if ($response -eq 'y') {
+            Write-Log -Message "User confirmed revocation. Proceeding..." -Level "WARNING" -LogFile $LogFile
+            
+            # Get just IDs for processing
+            $idList = certutil -view -restrict "Disposition=20" -out "RequestID" csv
+            
+            foreach ($line in $idList) {
+                # Match ID in quotes "10" or plain 10
+                if ($line -match '^\s*"?(\d+)"?') {
+                    $reqId = $matches[1]
+                    Write-Log -Message "Revoking Request ID: $reqId" -Level "INFO" -LogFile $LogFile
+                    certutil -revoke $reqId
+                }
+            }
+            Write-Log -Message "All issued certificates have been revoked." -Level "SUCCESS" -LogFile $LogFile
+            
+            Write-Log -Message "Publishing new CRL..." -Level "INFO" -LogFile $LogFile
+            certutil -crl
+        } else {
+            Write-Log -Message "User cancelled certificate revocation." -Level "INFO" -LogFile $LogFile
+        }
+    } else {
+        Write-Log -Message "No Certification Authority found. Skipping audit." -Level "INFO" -LogFile $LogFile
+    }
+} catch {
+    Write-Log -Message "Error during certificate audit: $_" -Level "ERROR" -LogFile $LogFile
+}
+
 

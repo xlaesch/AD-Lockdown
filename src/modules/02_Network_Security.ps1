@@ -283,14 +283,13 @@ try {
 }
 
 # General Block Policy (from zero.ps1 - careful with this!)
-# The above line is very aggressive. zero.ps1 had it at the end. 
 # I will include it but commented out or with a warning, as it requires all allow rules to be perfect.
 # Given the user said "keep AD hardening", this is a general firewall setting but critical for the "Lockdown" aspect.
 # I will apply it but ensure we logged it.
 
 Write-Log -Message "Applying Default Block Policy (Inbound/Outbound)..." -Level "WARNING" -LogFile $LogFile
 try {
-    # netsh a s allp firewallpolicy "blockinbound,blockoutbound"
+    netsh a s allp firewallpolicy "blockinbound,blockoutbound"
     # Commenting out for safety in this refactor step. Uncomment to enable full lockdown.
     Write-Log -Message "Default Block Policy is currently COMMENTED OUT in script for safety." -Level "INFO" -LogFile $LogFile
 } catch {

@@ -14,6 +14,56 @@ if (-not (Get-Command New-RandomPassword -ErrorAction SilentlyContinue)) {
 }
 Write-Log -Message "Starting Account Policies Hardening..." -Level "INFO" -LogFile $LogFile
 
+# Helper function to check for risky permissions
+function Test-RiskyPermission {
+    param (
+        $AccessRule
+    )
+    
+    $RiskyRights = @("GenericAll", "WriteDacl", "WriteOwner", "WriteProperty", "ExtendedRight")
+    $IsRisky = $false
+    
+    foreach ($Right in $RiskyRights) {
+        if ($AccessRule.ActiveDirectoryRights -match $Right) {
+            $IsRisky = $true
+            break
+        }
+    }
+    
+    return $IsRisky
+}
+
+# Helper function to check if a principal is a known safe admin group
+function Test-IsSafePrincipal {
+    param (
+        $IdentityReference
+    )
+    
+    # List of common admin groups/accounts that are expected to have high privileges
+    $SafePrincipals = @(
+        "BUILTIN\\Administrators",
+        "NT AUTHORITY\\SYSTEM",
+        "NT AUTHORITY\\SELF",
+        "Domain Admins",
+        "Enterprise Admins",
+        "Schema Admins",
+        "Account Operators",
+        "Backup Operators",
+        "Print Operators",
+        "Server Operators",
+        "CREATOR OWNER"
+    )
+    
+    # Check if the identity contains any of the safe principals
+    foreach ($Safe in $SafePrincipals) {
+        if ($IdentityReference.Value -match [regex]::Escape($Safe)) {
+            return $true
+        }
+    }
+    
+    return $false
+}
+
 # Setup Secrets Directory & File
     $SecretsDir = "$PSScriptRoot/../../secrets"
     if (-not (Test-Path $SecretsDir)) { New-Item -ItemType Directory -Path $SecretsDir -Force | Out-Null }
@@ -47,10 +97,17 @@ Write-Log -Message "Starting Account Policies Hardening..." -Level "INFO" -LogFi
         Write-Log -Message "Failed to reset KRBTGT password: $_" -Level "ERROR" -LogFile $LogFile
     }
 
-
-
-    # --- 2. Privileged Group Cleanup ---
-    Write-Log -Message "Skipping privileged group member cleanup to avoid breaking delegated/admin access." -Level "WARNING" -LogFile $LogFile
+    # --- 1.5 Rotate DC Machine Account Password (Trust Key) ---
+    Write-Log -Message "Rotating Domain Controller Machine Account Password..." -Level "INFO" -LogFile $LogFile
+    try {
+        # This rotates the password of the DC's computer account.
+        # This invalidates old machine account hashes that could be used for DCSync or Silver Tickets.
+        Reset-ComputerMachinePassword -ErrorAction Stop
+        Write-Log -Message "DC Machine Account Password rotated successfully." -Level "SUCCESS" -LogFile $LogFile
+    }
+    catch {
+        Write-Log -Message "Failed to rotate DC Machine Account Password: $_" -Level "ERROR" -LogFile $LogFile
+    }
 
     # --- 3. Kerberos Pre-authentication ---
     Write-Log -Message "Enabling Kerberos Pre-authentication..." -Level "INFO" -LogFile $LogFile
@@ -188,9 +245,6 @@ Write-Log -Message "Starting Account Policies Hardening..." -Level "INFO" -LogFi
         Write-Log -Message "Failed to clear ManagedBy: $_" -Level "ERROR" -LogFile $LogFile
     }
 
-    # Reset ACLs on Common Objects (Aggressive)
-    Write-Log -Message "Skipping aggressive ACL resets to avoid removing delegated permissions." -Level "WARNING" -LogFile $LogFile
-
     # Mark non-DC computers as not trusted for delegation
     try {
         $dcs = Get-ADDomainController | Select-Object -ExpandProperty Name
@@ -291,9 +345,6 @@ Write-Log -Message "Starting Account Policies Hardening..." -Level "INFO" -LogFi
         Write-Log -Message "Failed to enable Recycle Bin (or already enabled): $_" -Level "INFO" -LogFile $LogFile
     }
 
-    # --- 13. Protected Users Group (Privileged Accounts) ---
-    Write-Log -Message "Skipping Protected Users mass-add to avoid authentication breakage." -Level "WARNING" -LogFile $LogFile
-
     # --- 14. Clear RODC Allowed Group ---
     Write-Log -Message "Clearing 'Allowed RODC Password Replication Group'..." -Level "INFO" -LogFile $LogFile
     try {
@@ -383,5 +434,126 @@ Write-Log -Message "Starting Account Policies Hardening..." -Level "INFO" -LogFi
 
     # --- 16. DCSync Attack Mitigation ---
     Write-Log -Message "Skipping DCSync permission pruning to avoid breaking replication tooling." -Level "WARNING" -LogFile $LogFile
+
+    # --- 17. Review Active Directory Delegated Access Permissions ---
+    Write-Log -Message "Starting Active Directory Delegation Review (Audit Only)..." -Level "INFO" -LogFile $LogFile
+
+    # 17.1 Check AdminSDHolder Permissions
+    Write-Log -Message "Checking AdminSDHolder permissions..." -Level "INFO" -LogFile $LogFile
+    try {
+        $RootDSE = Get-ADRootDSE
+        $AdminSDHolderPath = "AD:CN=AdminSDHolder,CN=System,$($RootDSE.defaultNamingContext)"
+        
+        if (Test-Path $AdminSDHolderPath) {
+            $Acl = Get-Acl -Path $AdminSDHolderPath
+            foreach ($Access in $Acl.Access) {
+                if (Test-RiskyPermission -AccessRule $Access) {
+                    if (-not (Test-IsSafePrincipal -IdentityReference $Access.IdentityReference)) {
+                        Write-Log -Message "Suspicious AdminSDHolder Permission: Principal '$($Access.IdentityReference)' has rights '$($Access.ActiveDirectoryRights)'" -Level "WARNING" -LogFile $LogFile
+                    }
+                }
+            }
+        }
+    } catch {
+        Write-Log -Message "Error checking AdminSDHolder: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # 17.2 Check Domain Root Permissions
+    Write-Log -Message "Checking Domain Root permissions..." -Level "INFO" -LogFile $LogFile
+    try {
+        $DomainRootPath = "AD:$($RootDSE.defaultNamingContext)"
+        $Acl = Get-Acl -Path $DomainRootPath
+        foreach ($Access in $Acl.Access) {
+            if ($Access.ActiveDirectoryRights -match "GenericAll" -or $Access.ActiveDirectoryRights -match "WriteDacl") {
+                if (-not (Test-IsSafePrincipal -IdentityReference $Access.IdentityReference)) {
+                    Write-Log -Message "Suspicious Domain Root Permission: Principal '$($Access.IdentityReference)' has rights '$($Access.ActiveDirectoryRights)'" -Level "WARNING" -LogFile $LogFile
+                }
+            }
+        }
+    } catch {
+        Write-Log -Message "Error checking Domain Root permissions: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # 17.3 Check for Dangerous Delegations on Admin Groups (adminCount=1)
+    Write-Log -Message "Checking for dangerous delegations on Protected Groups (adminCount=1)..." -Level "INFO" -LogFile $LogFile
+    try {
+        # Intuitive approach: Find all groups that are considered "protected" by AD (AdminSDHolder)
+        $AdminGroups = Get-ADGroup -Filter {adminCount -eq 1} -Properties adminCount
+        
+        foreach ($Group in $AdminGroups) {
+            $GroupPath = "AD:$($Group.DistinguishedName)"
+            try {
+                $Acl = Get-Acl -Path $GroupPath
+                foreach ($Access in $Acl.Access) {
+                    if (Test-RiskyPermission -AccessRule $Access) {
+                        if (-not (Test-IsSafePrincipal -IdentityReference $Access.IdentityReference)) {
+                            Write-Log -Message "Suspicious Permission on Admin Group '$($Group.Name)': Principal '$($Access.IdentityReference)' has rights '$($Access.ActiveDirectoryRights)'" -Level "WARNING" -LogFile $LogFile
+                        }
+                    }
+                }
+            } catch {
+                Write-Log -Message "Error checking ACL for group $($Group.Name): $_" -Level "WARNING" -LogFile $LogFile
+            }
+        }
+    } catch {
+        Write-Log -Message "Error enumerating admin groups: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # --- 18. Reset LAPS Passwords ---
+    Write-Log -Message "Resetting LAPS Passwords for all computers..." -Level "INFO" -LogFile $LogFile
+    try {
+        $computers = Get-ADComputer -Filter * -Properties ms-Mcs-AdmPwdExpirationTime, msLAPS-PasswordExpirationTime -ErrorAction SilentlyContinue
+        if ($computers) {
+            foreach ($comp in $computers) {
+                # Legacy LAPS
+                try {
+                    Set-ADComputer -Identity $comp -Clear "ms-Mcs-AdmPwdExpirationTime" -ErrorAction Stop
+                    Write-Log -Message "Triggered Legacy LAPS password reset for $($comp.Name)" -Level "SUCCESS" -LogFile $LogFile
+                } catch {
+                    # Attribute likely doesn't exist or schema not extended
+                }
+
+                # Windows LAPS
+                try {
+                    Set-ADComputer -Identity $comp -Clear "msLAPS-PasswordExpirationTime" -ErrorAction Stop
+                    Write-Log -Message "Triggered Windows LAPS password reset for $($comp.Name)" -Level "SUCCESS" -LogFile $LogFile
+                } catch {
+                    # Attribute likely doesn't exist or schema not extended
+                }
+            }
+        }
+    } catch {
+        Write-Log -Message "Failed to execute LAPS password reset: $_" -Level "ERROR" -LogFile $LogFile
+    }
+
+    # --- 19. Audit RBCD Backdoors (msDS-AllowedToActOnBehalfOfOtherIdentity) ---
+    Write-Log -Message "Auditing for potential RBCD Backdoors (msDS-AllowedToActOnBehalfOfOtherIdentity)..." -Level "INFO" -LogFile $LogFile
+    try {
+        # Find objects with RBCD configured
+        $rbcdObjects = Get-ADObject -Filter {msDS-AllowedToActOnBehalfOfOtherIdentity -like "*"} -Properties msDS-AllowedToActOnBehalfOfOtherIdentity, Name, ObjectClass, DistinguishedName
+        
+        if ($rbcdObjects) {
+            foreach ($obj in $rbcdObjects) {
+                Write-Log -Message "WARNING: RBCD configured on object: $($obj.Name) ($($obj.ObjectClass))" -Level "WARNING" -LogFile $LogFile
+                Write-Log -Message "  - DN: $($obj.DistinguishedName)" -Level "WARNING" -LogFile $LogFile
+                
+                try {
+                    # Attempt to parse the Security Descriptor to show who has access
+                    $sdBytes = $obj.'msDS-AllowedToActOnBehalfOfOtherIdentity'
+                    if ($sdBytes) {
+                        $sddl = [System.Security.AccessControl.RawSecurityDescriptor]::new($sdBytes, 0).GetSddlForm("All")
+                        Write-Log -Message "  - SDDL (Principals allowed to impersonate): $sddl" -Level "WARNING" -LogFile $LogFile
+                    }
+                } catch {
+                    Write-Log -Message "  - Could not parse security descriptor details." -Level "WARNING" -LogFile $LogFile
+                }
+            }
+            Write-Log -Message "Review the logs above. If these delegations are not known (e.g., Exchange), they may be backdoors." -Level "WARNING" -LogFile $LogFile
+        } else {
+            Write-Log -Message "No objects found with RBCD configured." -Level "SUCCESS" -LogFile $LogFile
+        }
+    } catch {
+        Write-Log -Message "Failed to audit RBCD: $_" -Level "ERROR" -LogFile $LogFile
+    }
 
 
