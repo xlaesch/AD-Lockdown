@@ -1,9 +1,5 @@
 # AD-Lockdown
 
-## TODO
-- [x] Lock the secrets file with a password
-- [] Understand what installing an enterprise root CA means on an environment with no ADCS
-
 ## Overview
 AD-Lockdown is an Active Directory hardening toolkit intended to run on Windows Domain Controllers. `Start-Hardening.ps1` orchestrates a set of modules that apply security controls, logging all actions to a daily log file.
 
@@ -33,6 +29,7 @@ Status legend: APPLIED, CONDITIONAL, INTERACTIVE, AUDIT-ONLY, SKIPPED.
 ### 00 Password Rotation (src/modules/00_Password_Rotation.ps1)
 | Vulnerability addressed | What the vuln can lead to | The control mitigating it |
 | --- | --- | --- |
+| Primary admin account lockout or compromise | Total loss of domain control | [INTERACTIVE] Create a backup Domain Admin account with membership in Domain Admins, Enterprise Admins, Schema Admins, Administrators, and Group Policy Creator Owners; credentials written to secrets CSV. |
 | Stale or compromised domain user passwords (bulk) | Account takeover, lateral movement | [INTERACTIVE] Rotate all domain user passwords except Domain Admins, Enterprise Admins, and Administrator/krbtgt/Guest/DefaultAccount; write secrets CSV. |
 | Stale or compromised passwords on selected accounts | Targeted account takeover | [INTERACTIVE] Rotate selected domain user passwords; write secrets CSV. |
 | Password rotation not performed | Compromised credentials persist | [SKIPPED] Operator selects 'Skip password rotation' or cancels selection. |

@@ -34,6 +34,74 @@ if (-not (Test-Path $PasswordFile)) {
 Write-Log -Message "Passwords will be saved to $PasswordFile and encrypted after execution." -Level "INFO" -LogFile $LogFile
 $global:RotatedPasswordFile = $PasswordFile
 
+# ── Create Backup Domain Admin ──────────────────────────────────────────────────
+# Creates a highly privileged failsafe account in case the primary admin is
+# locked out. The account is added to Domain Admins, Enterprise Admins,
+# Schema Admins, and the built-in Administrators group.
+Write-Log -Message "=== Backup Domain Admin Creation ===" -Level "INFO" -LogFile $LogFile
+
+$createBackupAdmin = Select-ArrowMenu -Title "Create a backup Domain Admin account?" -Options @("Yes", "No")
+if ($createBackupAdmin -eq "Yes") {
+    try {
+        Import-Module ActiveDirectory -ErrorAction Stop
+
+        $backupAdminName = Read-Host "Enter backup admin username (default: CCDCAdmin)"
+        if ([string]::IsNullOrWhiteSpace($backupAdminName)) {
+            $backupAdminName = "CCDCAdmin"
+        }
+
+        # Check if the account already exists
+        $existingAccount = Get-ADUser -Filter "SamAccountName -eq '$backupAdminName'" -ErrorAction SilentlyContinue
+        if ($existingAccount) {
+            Write-Log -Message "Account '$backupAdminName' already exists. Resetting password and ensuring group memberships." -Level "WARNING" -LogFile $LogFile
+            $backupPassword = New-RandomPassword -Length 24
+            $secureBackupPassword = ConvertTo-SecureString -String $backupPassword -AsPlainText -Force
+            Set-ADAccountPassword -Identity $backupAdminName -NewPassword $secureBackupPassword -Reset
+            Enable-ADAccount -Identity $backupAdminName -ErrorAction SilentlyContinue
+        } else {
+            $backupPassword = New-RandomPassword -Length 24
+            $secureBackupPassword = ConvertTo-SecureString -String $backupPassword -AsPlainText -Force
+            $domainDN = (Get-ADDomain).DistinguishedName
+            New-ADUser -Name $backupAdminName `
+                       -SamAccountName $backupAdminName `
+                       -UserPrincipalName "$backupAdminName@$((Get-ADDomain).DNSRoot)" `
+                       -AccountPassword $secureBackupPassword `
+                       -Enabled $true `
+                       -PasswordNeverExpires $true `
+                       -CannotChangePassword $false `
+                       -Description "CCDC Backup Domain Admin - failsafe account" `
+                       -Path "CN=Users,$domainDN"
+            Write-Log -Message "Created backup admin account: $backupAdminName" -Level "SUCCESS" -LogFile $LogFile
+        }
+
+        # Add to all high-privilege groups
+        $privilegedGroups = @("Domain Admins", "Enterprise Admins", "Schema Admins", "Administrators", "Group Policy Creator Owners")
+        foreach ($group in $privilegedGroups) {
+            try {
+                Add-ADGroupMember -Identity $group -Members $backupAdminName -ErrorAction Stop
+                Write-Log -Message "Added '$backupAdminName' to '$group'." -Level "SUCCESS" -LogFile $LogFile
+            } catch {
+                if ($_.Exception.Message -match "already a member") {
+                    Write-Log -Message "'$backupAdminName' is already a member of '$group'." -Level "INFO" -LogFile $LogFile
+                } else {
+                    Write-Log -Message "Failed to add '$backupAdminName' to '$group': $_" -Level "ERROR" -LogFile $LogFile
+                }
+            }
+        }
+
+        # Record credentials in secrets CSV
+        "$backupAdminName,$backupPassword" | Out-File -FilePath $PasswordFile -Append -Encoding ASCII
+        Write-Host "Backup admin '$backupAdminName' created/updated. Credentials saved to secrets file." -ForegroundColor Green
+        Write-Log -Message "Backup admin credentials written to $PasswordFile" -Level "SUCCESS" -LogFile $LogFile
+    } catch {
+        Write-Log -Message "Failed to create backup Domain Admin: $_" -Level "ERROR" -LogFile $LogFile
+        Write-Warning "Backup admin creation failed. See log for details."
+    }
+} else {
+    Write-Log -Message "Skipped backup Domain Admin creation per user request." -Level "INFO" -LogFile $LogFile
+}
+
+# ── Password Rotation ───────────────────────────────────────────────────────────
 $rotationOptions = @(
     "Rotate ALL domain user passwords",
     "Rotate selected domain user accounts",
@@ -44,6 +112,8 @@ $rotationChoice = Select-ArrowMenu -Title "Password rotation options" -Options $
 if (-not $rotationChoice) {
     $rotationChoice = "Skip password rotation"
 }
+
+$serviceAccountPattern = '^svc'
 
 switch ($rotationChoice) {
     "Rotate ALL domain user passwords" {
@@ -59,7 +129,8 @@ switch ($rotationChoice) {
             $excludedUsers += @("Administrator", "krbtgt", "Guest", "DefaultAccount")
             
             $users = Get-ADUser -Filter * | Where-Object {
-                ($_.SamAccountName -notin $excludedUsers)
+                ($_.SamAccountName -notin $excludedUsers) -and
+                ($_.SamAccountName -notmatch $serviceAccountPattern)
             }
 
             $GroupUserMap = @{}
@@ -102,7 +173,9 @@ switch ($rotationChoice) {
         try {
             Import-Module ActiveDirectory -ErrorAction Stop
 
-            $userList = Get-ADUser -Filter * | Sort-Object SamAccountName
+            $userList = Get-ADUser -Filter * | Where-Object {
+                $_.SamAccountName -notmatch $serviceAccountPattern
+            } | Sort-Object SamAccountName
             if (-not $userList) {
                 Write-Log -Message "No domain users found for selected-account rotation." -Level "WARNING" -LogFile $LogFile
             } else {
@@ -112,6 +185,11 @@ switch ($rotationChoice) {
                 if (-not $selectedUsers -or $selectedUsers.Count -eq 0) {
                     Write-Log -Message "No users selected for password rotation." -Level "WARNING" -LogFile $LogFile
                 } else {
+                    $preFilterCount = $selectedUsers.Count
+                    $selectedUsers = $selectedUsers | Where-Object { $_ -notmatch $serviceAccountPattern }
+                    if ($selectedUsers.Count -lt $preFilterCount) {
+                        Write-Log -Message "Skipping service accounts that match pattern $serviceAccountPattern." -Level "INFO" -LogFile $LogFile
+                    }
                     foreach ($samAccountName in $selectedUsers) {
                         try {
                             $newPassword    = New-RandomPassword -Length 16
