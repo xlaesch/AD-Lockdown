@@ -109,7 +109,7 @@ Status legend: APPLIED, CONDITIONAL, INTERACTIVE, AUDIT-ONLY, SKIPPED.
 | DNS inbound blocked | Name resolution failures | [APPLIED] Allow inbound DNS UDP 53 via netsh rule. |
 | Broad firewall exposure | Increased attack surface | [APPLIED] Set firewall policy to `blockinbound,blockoutbound` via netsh (script logs it as commented, but command runs). |
 | Firewall logging disabled | Reduced visibility | [APPLIED] Enable firewall logging for allowed and blocked traffic. |
-| Unnecessary SMB shares | Data exposure | [APPLIED] Remove SMB shares except ADMIN$, C$, IPC$, NETLOGON, SYSVOL. |
+| SMB server exposing unnecessary attack surface | Lateral movement, data exfiltration | [INTERACTIVE] Disable SMB server entirely (stops LanmanServer service and disables SMB2/3) or enumerate all shares with their permissions and select which to remove; critical shares (ADMIN$, C$, IPC$, NETLOGON, SYSVOL) require explicit confirmation before removal. |
 | Time skew | Kerberos authentication failures | [APPLIED] Set timezone to UTC and force time resync. |
 
 ### 03 Service Hardening (src/modules/03_Service_Hardening.ps1)

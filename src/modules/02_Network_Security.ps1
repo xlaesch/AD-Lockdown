@@ -352,25 +352,112 @@ try {
     Write-Log -Message "Failed to enable firewall logging." -Level "ERROR" -LogFile $LogFile
 }
 
-# --- 8. Network Share Cleanup ---
-Write-Log -Message "Removing Unnecessary Network Shares..." -Level "INFO" -LogFile $LogFile
-try {
-    $essentialShares = @("ADMIN$", "C$", "IPC$", "NETLOGON", "SYSVOL")
-    $sharesToRemove = Get-SmbShare | Where-Object { $_.Name -notin $essentialShares }
+# --- 8. SMB Share Management ---
+Write-Log -Message "=== SMB Share Management ===" -Level "INFO" -LogFile $LogFile
 
-    foreach ($share in $sharesToRemove) {
+$smbOptions = @(
+    "Disable SMB server entirely",
+    "Enumerate shares and select which to remove",
+    "Skip SMB share management"
+)
+$smbChoice = Select-ArrowMenu -Title "SMB Share Management" -Options $smbOptions
+if (-not $smbChoice) { $smbChoice = "Skip SMB share management" }
+
+switch ($smbChoice) {
+    "Disable SMB server entirely" {
+        Write-Log -Message "Disabling SMB server entirely..." -Level "INFO" -LogFile $LogFile
         try {
-            Remove-SmbShare -Name $share.Name -Force -ErrorAction Stop
-            Write-Log -Message "Removed network share: $($share.Name)" -Level "SUCCESS" -LogFile $LogFile
-        }
-        catch {
-            Write-Log -Message "Failed to remove share $($share.Name): $_" -Level "WARNING" -LogFile $LogFile
+            # Disable SMB2/SMB3 server
+            if (Get-Command Set-SmbServerConfiguration -ErrorAction SilentlyContinue) {
+                Set-SmbServerConfiguration -EnableSMB2Protocol $false -Force -Confirm:$false -ErrorAction Stop
+                Write-Log -Message "SMB2/SMB3 disabled via Set-SmbServerConfiguration." -Level "SUCCESS" -LogFile $LogFile
+            }
+            # Stop and disable the LanmanServer service
+            Stop-Service -Name LanmanServer -Force -ErrorAction SilentlyContinue
+            Set-Service -Name LanmanServer -StartupType Disabled -ErrorAction SilentlyContinue
+            Write-Log -Message "LanmanServer service stopped and disabled." -Level "SUCCESS" -LogFile $LogFile
+            Write-Host "WARNING: SMB is now fully disabled. SYSVOL/NETLOGON replication and file sharing will not function." -ForegroundColor Red
+        } catch {
+            Write-Log -Message "Failed to disable SMB server: $_" -Level "ERROR" -LogFile $LogFile
         }
     }
-    Write-Log -Message "Network share cleanup completed." -Level "SUCCESS" -LogFile $LogFile
-}
-catch {
-    Write-Log -Message "Failed during network share cleanup: $_" -Level "ERROR" -LogFile $LogFile
+    "Enumerate shares and select which to remove" {
+        Write-Log -Message "Enumerating SMB shares with permissions..." -Level "INFO" -LogFile $LogFile
+        try {
+            $allShares = Get-SmbShare -ErrorAction Stop
+
+            if (-not $allShares -or $allShares.Count -eq 0) {
+                Write-Log -Message "No SMB shares found on this system." -Level "WARNING" -LogFile $LogFile
+            } else {
+                # Display shares with their permissions
+                Write-Host "`n===== Current SMB Shares =====" -ForegroundColor Cyan
+                foreach ($share in $allShares) {
+                    $accessRules = Get-SmbShareAccess -Name $share.Name -ErrorAction SilentlyContinue
+                    Write-Host "`n  Share: " -NoNewline; Write-Host $share.Name -ForegroundColor Yellow
+                    Write-Host "  Path:  $($share.Path)"
+                    Write-Host "  Desc:  $($share.Description)"
+                    if ($accessRules) {
+                        Write-Host "  Permissions:" -ForegroundColor Gray
+                        foreach ($rule in $accessRules) {
+                            $accessRight = $rule.AccessRight
+                            $accessType  = $rule.AccessControlType
+                            $account     = $rule.AccountName
+                            Write-Host "    - $account : $accessRight ($accessType)" -ForegroundColor Gray
+                        }
+                    } else {
+                        Write-Host "    (no explicit share permissions found)" -ForegroundColor DarkGray
+                    }
+                }
+                Write-Host "`n==============================`n" -ForegroundColor Cyan
+
+                # Build selection list with share name + path for clarity
+                $shareLabels = $allShares | ForEach-Object {
+                    $perms = (Get-SmbShareAccess -Name $_.Name -ErrorAction SilentlyContinue |
+                              ForEach-Object { "$($_.AccountName):$($_.AccessRight)" }) -join ", "
+                    if ($perms) {
+                        "$($_.Name)  [$($_.Path)]  ($perms)"
+                    } else {
+                        "$($_.Name)  [$($_.Path)]"
+                    }
+                }
+
+                $selectedShares = Select-ArrowMenu -Title "Select shares to REMOVE (essential shares like SYSVOL/NETLOGON will require confirmation)" -Options $shareLabels -MultiSelect -AllowSelectAll
+
+                if (-not $selectedShares -or $selectedShares.Count -eq 0) {
+                    Write-Log -Message "No shares selected for removal." -Level "INFO" -LogFile $LogFile
+                } else {
+                    $criticalShares = @("ADMIN$", "C$", "IPC$", "NETLOGON", "SYSVOL")
+
+                    foreach ($label in $selectedShares) {
+                        # Extract share name from label (everything before first space)
+                        $shareName = ($label -split '\s+')[0]
+
+                        if ($shareName -in $criticalShares) {
+                            Write-Host "WARNING: '$shareName' is a critical AD share. Removing it may break domain functionality." -ForegroundColor Red
+                            $confirm = Read-Host "Are you SURE you want to remove '$shareName'? [yes/no]"
+                            if ($confirm -ne "yes") {
+                                Write-Log -Message "Skipped removal of critical share '$shareName' (user declined)." -Level "INFO" -LogFile $LogFile
+                                continue
+                            }
+                        }
+
+                        try {
+                            Remove-SmbShare -Name $shareName -Force -ErrorAction Stop
+                            Write-Log -Message "Removed SMB share: $shareName" -Level "SUCCESS" -LogFile $LogFile
+                        } catch {
+                            Write-Log -Message "Failed to remove share '$shareName': $_" -Level "WARNING" -LogFile $LogFile
+                        }
+                    }
+                    Write-Log -Message "SMB share cleanup completed." -Level "SUCCESS" -LogFile $LogFile
+                }
+            }
+        } catch {
+            Write-Log -Message "Failed during SMB share enumeration: $_" -Level "ERROR" -LogFile $LogFile
+        }
+    }
+    default {
+        Write-Log -Message "Skipping SMB share management per user request." -Level "INFO" -LogFile $LogFile
+    }
 }
 
 # --- 9. Time Synchronization (Critical for Kerberos) ---
