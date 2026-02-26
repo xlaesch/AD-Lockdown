@@ -1,8 +1,22 @@
 <#
 .SYNOPSIS
-    AD Hardening Controller Script
+    Windows Hardening Controller Script
 .DESCRIPTION
-    Orchestrates the execution of hardening modules for Active Directory environments.
+    Orchestrates the execution of hardening modules for all Windows machines
+    in Red vs Blue (CCDC) competition environments. Automatically detects
+    whether it is running on a Domain Controller and adjusts behavior
+    accordingly — running AD-specific modules on DCs and general hardening
+    modules on workstations, member servers, IIS boxes, etc.
+.PARAMETER IncludeModule
+    Specify module name patterns to run (e.g. "Network", "Firewall").
+.PARAMETER All
+    Run all available modules without prompting for selection.
+.PARAMETER DebugMode
+    Skip admin/DC validation for testing purposes.
+.EXAMPLE
+    .\Start-Hardening.ps1
+    .\Start-Hardening.ps1 -All
+    .\Start-Hardening.ps1 -IncludeModule "Network","Firewall"
 #>
 
 param (
@@ -27,38 +41,29 @@ if (-not (Test-Path $LogDir)) {
 . "$ScriptRoot/src/functions/New-RandomPassword.ps1"
 . "$ScriptRoot/src/functions/Read-ConfirmedPassword.ps1"
 . "$ScriptRoot/src/functions/Protect-SecretsFile.ps1"
+. "$ScriptRoot/src/functions/Unprotect-SecretsFile.ps1"
 
-function Install-Sysinternals {
-    param (
-        [string]$DestinationPath = "C:\Sysinternals",
-        [string]$SourceZipPath = (Join-Path $PSScriptRoot "tools.zip"),
-        [string]$LogFile
-    )
+# Flag so modules know they're running under the controller
+$global:StartHardeningController = $true
 
-    if (-not (Test-Path $DestinationPath)) {
-        New-Item -ItemType Directory -Path $DestinationPath -Force | Out-Null
-    }
+# ── Domain Controller Detection ──────────────────────────────────────────────
+# ProductType 2 = Domain Controller.  This flag is exposed globally so every
+# module can branch on it without needing extra WMI queries of their own.
+if ($DebugMode) {
+    # In debug mode default to non-DC; override with env var for testing:
+    #   $env:FORCE_DC = "1"; .\Start-Hardening.ps1 -DebugMode
+    $global:IsDomainController = ($env:FORCE_DC -eq "1")
+    Write-Log -Message "Debug mode: IsDomainController forced to $($global:IsDomainController)" -Level "WARNING" -LogFile $LogFile
+} else {
+    $global:IsDomainController = $null -ne (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType='2'")
+}
 
-    # Check if PsExec exists to avoid overwriting in use files or redundant downloads
-    if (Test-Path (Join-Path $DestinationPath "PsExec.exe")) {
-        if ($LogFile) { Write-Log -Message "Sysinternals (PsExec) already installed at $DestinationPath. Skipping download." -Level "INFO" -LogFile $LogFile }
-        return
-    }
-
-    try {
-        if (-not (Test-Path $SourceZipPath)) {
-            if ($LogFile) { Write-Log -Message "Sysinternals bundle not found at $SourceZipPath. Skipping install." -Level "WARNING" -LogFile $LogFile }
-            return
-        }
-
-        if ($LogFile) { Write-Log -Message "Extracting Sysinternals bundle from $SourceZipPath..." -Level "INFO" -LogFile $LogFile }
-        Expand-Archive -Path $SourceZipPath -DestinationPath $DestinationPath -Force
-        if ($LogFile) { Write-Log -Message "Sysinternals bundle extracted successfully." -Level "INFO" -LogFile $LogFile }
-    }
-    catch {
-        if ($LogFile) { Write-Log -Message "Failed to install PSTools: $_" -Level "ERROR" -LogFile $LogFile }
-        throw $_
-    }
+if ($global:IsDomainController) {
+    Write-Log -Message "Domain Controller detected — AD hardening path will be used." -Level "INFO" -LogFile $LogFile
+    Write-Host "Domain Controller detected." -ForegroundColor Yellow
+} else {
+    Write-Log -Message "Non-DC machine detected — general hardening path will be used." -Level "INFO" -LogFile $LogFile
+    Write-Host "Workstation / Member Server detected." -ForegroundColor Yellow
 }
 
 function Select-ArrowMenu {
@@ -129,149 +134,142 @@ function Select-ArrowMenu {
     }
 }
 
-Write-Log -Message "=== Starting AD Hardening Process ===" -Level "INFO" -LogFile $LogFile
+Write-Log -Message "=== Starting Windows Hardening Process ===" -Level "INFO" -LogFile $LogFile
 
-# Extract tool bundles before elevation attempts
-$ToolsDir = "$PSScriptRoot/tools"
-if (-not (Test-Path $ToolsDir)) {
-    New-Item -ItemType Directory -Path $ToolsDir -Force | Out-Null
-}
-
-$RootToolsZip = "$PSScriptRoot/tools.zip"
-if (Test-Path $RootToolsZip) {
-    $MarkerFile = "$ToolsDir/tools.zip.extracted"
-    if (-not (Test-Path $MarkerFile)) {
-        Write-Log -Message "Extracting tools.zip..." -Level "INFO" -LogFile $LogFile
-        try {
-            Expand-Archive -Path $RootToolsZip -DestinationPath $ToolsDir -Force
-            New-Item -Path $MarkerFile -ItemType File -Force | Out-Null
-            Write-Log -Message "Extracted tools.zip to $ToolsDir" -Level "INFO" -LogFile $LogFile
-        } catch {
-            Write-Log -Message "Failed to extract tools.zip: $_" -Level "ERROR" -LogFile $LogFile
-        }
-    }
-}
-
-if (Test-Path $ToolsDir) {
-    $ZipFiles = Get-ChildItem -Path $ToolsDir -Filter "*.zip"
-    foreach ($Zip in $ZipFiles) {
-        $MarkerFile = "$($Zip.FullName).extracted"
-        if (-not (Test-Path $MarkerFile)) {
-            Write-Log -Message "Extracting $($Zip.Name)..." -Level "INFO" -LogFile $LogFile
-            try {
-                Expand-Archive -Path $Zip.FullName -DestinationPath $ToolsDir -Force
-                New-Item -Path $MarkerFile -ItemType File -Force | Out-Null
-                Write-Log -Message "Extracted $($Zip.Name) to $ToolsDir" -Level "INFO" -LogFile $LogFile
-            } catch {
-                Write-Log -Message "Failed to extract $($Zip.Name): $_" -Level "ERROR" -LogFile $LogFile
-            }
-        }
-    }
-}
-
-# Debug mode skips DC validation and Sysinternals download.
+# Check for Administrator privileges
 if ($DebugMode) {
-    Write-Log -Message "Debug mode enabled: skipping DC validation and Sysinternals download." -Level "WARNING" -LogFile $LogFile
+    Write-Log -Message "Debug mode enabled: skipping admin validation." -Level "WARNING" -LogFile $LogFile
 } else {
-    $isDomainController = (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType='2'")
-    if (-not $isDomainController) {
-        Write-Log -Message "This tool must be run on a Domain Controller. Exiting." -Level "ERROR" -LogFile $LogFile
+    $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    $p = New-Object System.Security.Principal.WindowsPrincipal($id)
+    $IsAdmin = $p.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+
+    if (-not $IsAdmin) {
+        Write-Log -Message "This script must be run as Administrator. Attempting to elevate..." -Level "WARNING" -LogFile $LogFile
+
+        $ScriptPath = $PSCommandPath
+        $ArgsString = ""
+        if ($All) { $ArgsString += " -All" }
+        if ($IncludeModule) {
+            $modules = $IncludeModule -join ","
+            $ArgsString += " -IncludeModule $modules"
+        }
+        if ($DebugMode) { $ArgsString += " -DebugMode" }
+
+        try {
+            Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$ScriptPath`"$ArgsString" -Verb RunAs -Wait
+            Write-Log -Message "Elevated process finished." -Level "INFO" -LogFile $LogFile
+        } catch {
+            Write-Log -Message "Failed to elevate: $_" -Level "ERROR" -LogFile $LogFile
+        }
         exit
     }
 }
 
-# Install Sysinternals
-$SysinternalsDir = "$PSScriptRoot/tools"
-if (-not $DebugMode) {
-    try {
-        Install-Sysinternals -DestinationPath $SysinternalsDir -LogFile $LogFile
-    }
-    catch {
-        Write-Warning "Sysinternals (PSTools) installation failed. Check logs for details."
-    }
-}
+Write-Log -Message "Running as Administrator. Proceeding with hardening..." -Level "INFO" -LogFile $LogFile
+Write-Log -Message "Hostname: $env:COMPUTERNAME | User: $env:USERNAME" -Level "INFO" -LogFile $LogFile
 
-# Check for SYSTEM privileges and Relaunch if needed
-$id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-$p = New-Object System.Security.Principal.WindowsPrincipal($id)
-# Use SID for LocalSystem (S-1-5-18) to avoid enum resolution issues
-$IsSystem = $p.IsInRole([System.Security.Principal.SecurityIdentifier]"S-1-5-18")
+# ── SYSTEM Elevation ─────────────────────────────────────────────────────────
+# Some operations (Defender when Tamper Protection is active, SAM hive access)
+# require NT AUTHORITY\SYSTEM. Offer to re-launch via PsExec -s.
+$isSystem = ([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value -eq "S-1-5-18")
 
-if (-not $IsSystem) {
-    if ($DebugMode) {
-        Write-Log -Message "Debug mode: skipping SYSTEM elevation." -Level "WARNING" -LogFile $LogFile
-    } else {
-    Write-Log -Message "Not running as SYSTEM. Attempting to elevate using PsExec..." -Level "INFO" -LogFile $LogFile
-    
-    $PsExecPath = Join-Path $SysinternalsDir "PsExec.exe"
-    if (-not (Test-Path $PsExecPath)) {
-         Write-Warning "PsExec not found at $PsExecPath. Cannot elevate."
-         exit
-    }
-    
-    # Reconstruct arguments
-    $ScriptPath = $PSCommandPath
-    $ArgsString = ""
-    if ($All) { $ArgsString += " -All" }
-    if ($IncludeModule) { 
-         $modules = $IncludeModule -join ","
-         $ArgsString += " -IncludeModule $modules" 
-    }
-    if ($DebugMode) { $ArgsString += " -DebugMode" }
-    
-    # Launch as SYSTEM
-    # -i: Interactive (so we can see the menu if needed)
-    # -s: System account
-    # -accepteula: Accept EULA automatically
-    # -w: Working directory
-    
-    $CmdArgs = "-i -s -accepteula -w `"$PSScriptRoot`" powershell.exe -ExecutionPolicy Bypass -File `"$ScriptPath`"$ArgsString"
-    
-    Write-Log -Message "Relaunching as SYSTEM: $PsExecPath $CmdArgs" -Level "INFO" -LogFile $LogFile
-    
-    Start-Process -FilePath $PsExecPath -ArgumentList $CmdArgs -Wait
-    
-    Write-Log -Message "Child process finished." -Level "INFO" -LogFile $LogFile
-
-    # Cleanup Prompt
-    Write-Host "Hardening complete." -ForegroundColor Green
-    $response = Read-Host "Do you want to remove the extracted tools directory at $SysinternalsDir? (Y/N)"
-    if ($response -eq "Y") {
-        if (Test-Path $SysinternalsDir) {
-            Remove-Item -Path $SysinternalsDir -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Log -Message "Removed tools directory $SysinternalsDir" -Level "INFO" -LogFile $LogFile
+if ($isSystem) {
+    Write-Log -Message "Running as SYSTEM." -Level "INFO" -LogFile $LogFile
+    Write-Host "Running as SYSTEM." -ForegroundColor Green
+} else {
+    Write-Host ""
+    Write-Host "Some hardening operations require SYSTEM privileges:" -ForegroundColor Yellow
+    Write-Host "  - Windows Defender changes when Tamper Protection is active" -ForegroundColor Yellow
+    Write-Host "  - SAM registry access (RID hijacking mitigation)" -ForegroundColor Yellow
+    $elevateSystem = Read-Host "Re-launch as SYSTEM via PsExec? [y/n]"
+    if ($elevateSystem -match '^(?i)y(es)?$') {
+        # Locate PsExec
+        $psExecPath = $null
+        foreach ($candidate in @(
+            "$ScriptRoot\PsExec.exe",
+            "$ScriptRoot\PsExec64.exe",
+            "$ScriptRoot\tools\PsExec.exe",
+            "$ScriptRoot\tools\PsExec64.exe"
+        )) {
+            if (Test-Path $candidate) { $psExecPath = $candidate; break }
         }
-        Write-Host "Cleanup complete." -ForegroundColor Green
-    }
+        if (-not $psExecPath) {
+            $psExecPath = Get-Command PsExec64.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+        }
+        if (-not $psExecPath) {
+            $psExecPath = Get-Command PsExec.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+        }
 
-    Write-Log -Message "Exiting parent process." -Level "INFO" -LogFile $LogFile
-    exit
+        if ($psExecPath) {
+            Write-Log -Message "Re-launching as SYSTEM via $psExecPath" -Level "INFO" -LogFile $LogFile
+            $ScriptPath = $PSCommandPath
+            $ArgsString = ""
+            if ($All) { $ArgsString += " -All" }
+            if ($IncludeModule) {
+                $modules = $IncludeModule -join ","
+                $ArgsString += " -IncludeModule $modules"
+            }
+            if ($DebugMode) { $ArgsString += " -DebugMode" }
+
+            & $psExecPath -s -i -accepteula powershell.exe -ExecutionPolicy Bypass -File "$ScriptPath" $ArgsString
+            exit
+        } else {
+            Write-Host "PsExec not found. Place PsExec.exe or PsExec64.exe in the script root or on PATH." -ForegroundColor Red
+            Write-Host "Continuing as Administrator (some operations may fail)." -ForegroundColor Yellow
+            Write-Log -Message "PsExec not found — continuing as Administrator." -Level "WARNING" -LogFile $LogFile
+        }
+    } else {
+        Write-Log -Message "User declined SYSTEM elevation — continuing as Administrator." -Level "INFO" -LogFile $LogFile
     }
 }
 
-Write-Log -Message "Running as SYSTEM. Proceeding with hardening..." -Level "INFO" -LogFile $LogFile
+# ── Early Nmap Background Scan ───────────────────────────────────────────────
+# Prompt now so the scan runs in the background while all modules execute.
+Write-Host ""
+$runNmap = Read-Host "Run bundled nmap (from tools.zip) for dynamic service discovery? [y/n]"
+if ($runNmap -match '^(?i)y(es)?$') {
+    & "$ScriptRoot/src/functions/Start-NmapBackgroundScan.ps1" -LogFile $LogFile
+}
 
 # Define Available Modules
 $AvailableModules = @(
     "00_Password_Rotation.ps1",
-    "01_Account_Policies.ps1",
-    "02_Network_Security.ps1",
-    "03_Service_Hardening.ps1",
-    "04_Audit_Logging.ps1",
-    "05_Cert_Authority.ps1",
-    "06_Firewall_Hardening.ps1",
-    "07_Backup_Services.ps1",
-    "08_Post_Analysis.ps1"
+    "01_Local_Account_Policies.ps1",
+    "02_Domain_Account_Policies.ps1",
+    "03_Network_Security.ps1",
+    "04_Service_Hardening.ps1",
+    "05_Audit_Logging.ps1",
+    "06_Windows_Defender.ps1",
+    "07_Firewall_Hardening.ps1",
+    "08_System_Hardening.ps1",
+    "09_RDP_Security.ps1",
+    "10_Cert_Authority.ps1",
+    "11_Backup_Services.ps1",
+    "12_Windows_Updates.ps1",
+    "13_Post_Analysis.ps1",
+    "14_EDR_Deployment.ps1"
 )
+
+# Validate modules exist
+$ValidModules = @()
+foreach ($mod in $AvailableModules) {
+    $modPath = "$ScriptRoot/src/modules/$mod"
+    if (Test-Path $modPath) {
+        $ValidModules += $mod
+    } else {
+        Write-Log -Message "Module file not found, skipping: $mod" -Level "WARNING" -LogFile $LogFile
+    }
+}
 
 $ModulesToExecute = @()
 
 if ($All) {
-    $ModulesToExecute = $AvailableModules
+    $ModulesToExecute = $ValidModules
 }
 elseif ($IncludeModule) {
     foreach ($m in $IncludeModule) {
-        $match = $AvailableModules | Where-Object { $_ -like "*$m*" }
+        $match = $ValidModules | Where-Object { $_ -like "*$m*" }
         if ($match) {
             $ModulesToExecute += $match
         } else {
@@ -280,7 +278,7 @@ elseif ($IncludeModule) {
     }
 }
 else {
-    $ModulesToExecute = Select-ArrowMenu -Title "Select modules to run" -Options $AvailableModules -MultiSelect -AllowSelectAll
+    $ModulesToExecute = Select-ArrowMenu -Title "Select modules to run" -Options $ValidModules -MultiSelect -AllowSelectAll
 }
 
 # Remove duplicates
@@ -291,15 +289,28 @@ if ($ModulesToExecute.Count -eq 0) {
     exit
 }
 
-$SecretsModules = @(
-    "00_Password_Rotation.ps1",
-    "01_Account_Policies.ps1"
-)
+Write-Log -Message "Modules selected: $($ModulesToExecute -join ', ')" -Level "INFO" -LogFile $LogFile
 
+# If any password-rotation module is selected, prompt for secrets encryption
+# password up front so the module can defer encryption until all modules finish.
+$SecretsModules = @("00_Password_Rotation.ps1", "02_Domain_Account_Policies.ps1")
 if ($ModulesToExecute | Where-Object { $SecretsModules -contains $_ }) {
     $global:SecretsEncryptionDeferred = $true
     $global:SecretsFilePassword = Read-ConfirmedPassword -Prompt "Enter secrets file password" -ConfirmPrompt "Confirm secrets file password"
     Write-Log -Message "Secrets output will be encrypted after module execution." -Level "INFO" -LogFile $LogFile
+}
+
+# ── Pre-Hardening Backup ─────────────────────────────────────────────────────
+Write-Log -Message "=== Running Pre-Hardening Backup ===" -Level "INFO" -LogFile $LogFile
+try {
+    $backupModule = "$ScriptRoot/src/modules/11_Backup_Services.ps1"
+    if (Test-Path $backupModule) {
+        & $backupModule -LogFile $LogFile -IsDomainController $global:IsDomainController -Phase "Pre"
+    } else {
+        Write-Log -Message "Backup module not found — skipping pre-hardening backup." -Level "WARNING" -LogFile $LogFile
+    }
+} catch {
+    Write-Log -Message "Pre-hardening backup failed: $_" -Level "ERROR" -LogFile $LogFile
 }
 
 foreach ($Module in $ModulesToExecute) {
@@ -307,7 +318,7 @@ foreach ($Module in $ModulesToExecute) {
     if (Test-Path $ModulePath) {
         Write-Log -Message "Executing module: $Module" -Level "INFO" -LogFile $LogFile
         try {
-            & $ModulePath -LogFile $LogFile
+            & $ModulePath -LogFile $LogFile -IsDomainController $global:IsDomainController
         }
         catch {
             Write-Log -Message "Error executing module $Module : $_" -Level "ERROR" -LogFile $LogFile
@@ -317,8 +328,36 @@ foreach ($Module in $ModulesToExecute) {
     }
 }
 
+# ── Post-Hardening Backup ────────────────────────────────────────────────────
+Write-Log -Message "=== Running Post-Hardening Backup ===" -Level "INFO" -LogFile $LogFile
+try {
+    $backupModule = "$ScriptRoot/src/modules/11_Backup_Services.ps1"
+    if (Test-Path $backupModule) {
+        & $backupModule -LogFile $LogFile -IsDomainController $global:IsDomainController -Phase "Post"
+    } else {
+        Write-Log -Message "Backup module not found — skipping post-hardening backup." -Level "WARNING" -LogFile $LogFile
+    }
+} catch {
+    Write-Log -Message "Post-hardening backup failed: $_" -Level "ERROR" -LogFile $LogFile
+}
+
+# Encrypt the secrets file if password rotation was run and encryption was deferred
 if ($global:SecretsFilePassword -and $global:RotatedPasswordFile) {
     Protect-SecretsFile -FilePath $global:RotatedPasswordFile -Password $global:SecretsFilePassword -LogFile $LogFile
 }
 
-Write-Log -Message "=== AD Hardening Process Complete ===" -Level "INFO" -LogFile $LogFile
+# Process nmap dynamic firewall rules if a background scan was started
+if ($global:NmapScanXmlPath) {
+    Write-Log -Message "Processing nmap dynamic firewall rules..." -Level "INFO" -LogFile $LogFile
+    try {
+        & "$ScriptRoot/src/functions/Invoke-NmapRuleCreator.ps1" `
+            -XmlPath $global:NmapScanXmlPath `
+            -TrustedNetwork $global:NmapTrustedNetwork `
+            -LogFile $LogFile
+    } catch {
+        Write-Log -Message "Error running Invoke-NmapRuleCreator: $_" -Level "ERROR" -LogFile $LogFile
+    }
+}
+
+Write-Log -Message "=== Windows Hardening Process Complete ===" -Level "INFO" -LogFile $LogFile
+Write-Host "`nHardening complete. Review log at: $LogFile" -ForegroundColor Green

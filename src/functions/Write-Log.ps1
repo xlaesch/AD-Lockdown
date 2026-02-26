@@ -2,16 +2,16 @@ function Write-Log {
     param(
         [Parameter(Mandatory=$true)]
         [string]$Message,
-        
+
         [ValidateSet("INFO", "WARNING", "ERROR", "SUCCESS")]
         [string]$Level = "INFO",
-        
+
         [string]$LogFile
     )
 
     $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $LogEntry = "[$Timestamp] [$Level] $Message"
-    
+
     # Color coding for console output
     switch ($Level) {
         "INFO"    { Write-Host $LogEntry -ForegroundColor Cyan }

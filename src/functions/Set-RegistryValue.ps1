@@ -2,13 +2,13 @@ function Set-RegistryValue {
     param(
         [Parameter(Mandatory=$true)]
         [string]$Path,
-        
+
         [Parameter(Mandatory=$true)]
         [string]$Name,
-        
+
         [Parameter(Mandatory=$true)]
         [string]$Value,
-        
+
         [ValidateSet("String", "ExpandString", "Binary", "DWord", "MultiString", "QWord", "Unknown")]
         [string]$Type = "DWord"
     )
