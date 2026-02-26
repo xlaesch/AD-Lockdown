@@ -3,7 +3,8 @@
 
 param(
     [string]$LogFile,
-    [bool]$IsDomainController = $global:IsDomainController
+    [bool]$IsDomainController = $global:IsDomainController,
+    [switch]$SkipSFC
 )
 
 if (-not (Get-Command Write-Log -ErrorAction SilentlyContinue)) {
@@ -398,13 +399,25 @@ try {
 }
 
 # --- 10. System File Integrity Check ---
-Write-Log -Message "Running system file integrity checks..." -Level "INFO" -LogFile $LogFile
-try {
-    Write-Host "Running SFC /scannow (this may produce output)..." -ForegroundColor Cyan
-    sfc /scannow 2>&1 | Out-Null
-    Write-Log -Message "SFC scan completed." -Level "SUCCESS" -LogFile $LogFile
-} catch {
-    Write-Log -Message "SFC scan failed or produced errors: $_" -Level "WARNING" -LogFile $LogFile
+if (-not $SkipSFC) {
+    $runSfc = $null
+    while ($runSfc -notmatch '^[YyNn]$') {
+        $runSfc = Read-Host "Run SFC /scannow? This can take 5+ minutes (Y/N)"
+    }
+    if ($runSfc -match '^[Yy]$') {
+        Write-Log -Message "Running system file integrity checks..." -Level "INFO" -LogFile $LogFile
+        try {
+            Write-Host "Running SFC /scannow (this may produce output)..." -ForegroundColor Cyan
+            sfc /scannow 2>&1 | Out-Null
+            Write-Log -Message "SFC scan completed." -Level "SUCCESS" -LogFile $LogFile
+        } catch {
+            Write-Log -Message "SFC scan failed or produced errors: $_" -Level "WARNING" -LogFile $LogFile
+        }
+    } else {
+        Write-Log -Message "SFC scan skipped by user." -Level "INFO" -LogFile $LogFile
+    }
+} else {
+    Write-Log -Message "SFC scan skipped (SkipSFC flag set)." -Level "INFO" -LogFile $LogFile
 }
 
 try {

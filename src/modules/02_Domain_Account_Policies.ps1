@@ -259,7 +259,7 @@ try {
 }
 
 # --- 7. Account Cleanup & Hardening (Extended) ---
-Write-Log -Message "Starting Extended Account Cleanup & Hardening..." -Level "INFO" -LogFile $LogFile
+Write-Log -Message "Starting Extended Account Cleanup and Hardening..." -Level "INFO" -LogFile $LogFile
 
 # Unlock all accounts
 try {
