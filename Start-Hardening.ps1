@@ -13,15 +13,19 @@
     Run all available modules without prompting for selection.
 .PARAMETER DebugMode
     Skip admin/DC validation for testing purposes.
+.PARAMETER ForceDC
+    Force Domain Controller mode (override auto-detection).
 .EXAMPLE
     .\Start-Hardening.ps1
     .\Start-Hardening.ps1 -All
+    .\Start-Hardening.ps1 -ForceDC
     .\Start-Hardening.ps1 -IncludeModule "Network","Firewall"
 #>
 
 param (
     [string[]]$IncludeModule,
     [switch]$All,
+    [switch]$ForceDC,
     [Alias("debug")]
     [switch]$DebugMode
 )
@@ -51,11 +55,13 @@ $global:StartHardeningController = $true
 # ── Domain Controller Detection ──────────────────────────────────────────────
 # ProductType 2 = Domain Controller.  This flag is exposed globally so every
 # module can branch on it without needing extra WMI queries of their own.
-if ($DebugMode) {
-    # In debug mode default to non-DC; override with env var for testing:
-    #   $env:FORCE_DC = "1"; .\Start-Hardening.ps1 -DebugMode
-    $global:IsDomainController = ($env:FORCE_DC -eq "1")
-    Write-Log -Message "Debug mode: IsDomainController forced to $($global:IsDomainController)" -Level "WARNING" -LogFile $LogFile
+if ($ForceDC) {
+    $global:IsDomainController = $true
+    Write-Log -Message "ForceDC flag set: treating host as Domain Controller." -Level "WARNING" -LogFile $LogFile
+} elseif ($DebugMode) {
+    # In debug mode default to non-DC unless explicitly forced via -ForceDC.
+    $global:IsDomainController = $false
+    Write-Log -Message "Debug mode: IsDomainController forced to false (use -ForceDC to override)." -Level "WARNING" -LogFile $LogFile
 } else {
     $global:IsDomainController = $null -ne (Get-WmiObject -Query "select * from Win32_OperatingSystem where ProductType='2'")
 }
@@ -157,6 +163,7 @@ if ($DebugMode) {
             $ArgsString += " -IncludeModule $modules"
         }
         if ($DebugMode) { $ArgsString += " -DebugMode" }
+        if ($ForceDC) { $ArgsString += " -ForceDC" }
 
         try {
             Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$ScriptPath`"$ArgsString" -Verb RunAs -Wait
@@ -234,6 +241,7 @@ if ($isSystem) {
                 $ArgsString += " -IncludeModule $modules"
             }
             if ($DebugMode) { $ArgsString += " -DebugMode" }
+            if ($ForceDC) { $ArgsString += " -ForceDC" }
 
             & $psExecPath -s -i -accepteula powershell.exe -ExecutionPolicy Bypass -File "$ScriptPath" $ArgsString
             exit
@@ -256,6 +264,7 @@ if ($runNmap -match '^(?i)y(es)?$') {
 }
 
 # Define Available Modules
+# Backup module is controller-managed via dedicated pre/post snapshot steps.
 $AvailableModules = @(
     "00_Password_Rotation.ps1",
     "01_Local_Account_Policies.ps1",
@@ -268,7 +277,6 @@ $AvailableModules = @(
     "08_System_Hardening.ps1",
     "09_RDP_Security.ps1",
     "10_Cert_Authority.ps1",
-    "11_Backup_Services.ps1",
     "12_Windows_Updates.ps1",
     "13_Post_Analysis.ps1",
     "14_EDR_Deployment.ps1"

@@ -111,23 +111,33 @@ if ($nmapExe -and -not $nmapDataDir) {
 # --- Launch background scan ---
 if ($nmapExe) {
     $global:NmapScanXmlPath = Join-Path $env:TEMP "nmap_scan_$(Get-Date -Format 'yyyyMMdd_HHmmss').xml"
-    $scanArgs = @("-sT", "-sU", "-sV", "-O", "-T4", "-vvvv", "-p-", "-oX", $global:NmapScanXmlPath, "localhost")
+    # Faster default profile: full TCP port sweep with service detection.
+    $includeUdp = $false
+    $udpPrompt = $null
+    while ($udpPrompt -notmatch '^[YyNn]$') {
+        $udpPrompt = Read-Host "Include UDP scan (top 200 ports)? [y/n]"
+    }
+    if ($udpPrompt -match '^[Yy]$') {
+        $includeUdp = $true
+    }
+
+    $scanArgs = @("-sT", "-sV", "-T4", "-v", "--open", "-p-")
+    if ($includeUdp) {
+        $scanArgs += @("-sU", "--top-ports", "200")
+        Write-Log -Message "UDP scan enabled by user prompt. Adding UDP scan for top 200 ports (this can increase runtime)." -Level "INFO" -LogFile $LogFile
+    }
+    $scanArgs += @("-oX", $global:NmapScanXmlPath, "localhost")
 
     $dataProbeDir = if ($nmapDataDir) { $nmapDataDir } else { Split-Path -Parent $nmapExe }
-    $hasOsDb = Test-Path (Join-Path $dataProbeDir "nmap-os-db")
     $hasServiceProbes = Test-Path (Join-Path $dataProbeDir "nmap-service-probes")
     $hasPayloads = Test-Path (Join-Path $dataProbeDir "nmap-payloads")
     $hasServices = Test-Path (Join-Path $dataProbeDir "nmap-services")
 
-    if (-not $hasOsDb) {
-        $scanArgs = $scanArgs | Where-Object { $_ -ne "-O" }
-        Write-Log -Message "nmap-os-db not found in '$dataProbeDir'. Disabling OS detection (-O)." -Level "WARNING" -LogFile $LogFile
-    }
     if (-not $hasServiceProbes) {
         $scanArgs = $scanArgs | Where-Object { $_ -ne "-sV" }
         Write-Log -Message "nmap-service-probes not found in '$dataProbeDir'. Disabling version scan (-sV)." -Level "WARNING" -LogFile $LogFile
     }
-    if (-not $hasPayloads) {
+    if ($includeUdp -and -not $hasPayloads) {
         Write-Log -Message "nmap-payloads not found in '$dataProbeDir'. UDP payload matching may be limited." -Level "WARNING" -LogFile $LogFile
     }
     if (-not $hasServices) {
@@ -154,7 +164,9 @@ Start-Sleep -Seconds 10
     if ($nmapDataDir) {
         Write-Log -Message "Using nmap data directory: $nmapDataDir" -Level "INFO" -LogFile $LogFile
     }
-    Start-Process powershell.exe -WorkingDirectory (Split-Path -Parent $nmapExe) -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $scanScript -WindowStyle Normal
+    $scanLauncher = Start-Process powershell.exe -WorkingDirectory (Split-Path -Parent $nmapExe) -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $scanScript -WindowStyle Normal -PassThru
+    $global:NmapScanHostPid = $scanLauncher.Id
+    Write-Log -Message "Nmap scan launcher started (PID: $($global:NmapScanHostPid))." -Level "INFO" -LogFile $LogFile
     Write-Log -Message "Nmap scan running in visible window (all ports, high-verbosity profile). Results will be processed after all modules complete." -Level "INFO" -LogFile $LogFile
 } else {
     Write-Log -Message "Nmap not available -- skipping dynamic service discovery." -Level "WARNING" -LogFile $LogFile

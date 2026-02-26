@@ -13,7 +13,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$LogFile,
 
-    [int]$TimeoutSeconds = 300
+    [int]$TimeoutSeconds = 1200
 )
 
 if (-not (Get-Command Write-Log -ErrorAction SilentlyContinue)) {
@@ -53,12 +53,49 @@ function Add-NmapFirewallRule {
     }
 }
 
+function Test-NmapXmlComplete {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path $Path)) {
+        return $false
+    }
+
+    try {
+        # Avoid loading large XML repeatedly; check tail for closing root tag.
+        $tail = Get-Content -Path $Path -Tail 80 -ErrorAction Stop
+        return (($tail -join "`n") -match '</nmaprun>')
+    } catch {
+        return $false
+    }
+}
+
 # --- Wait for nmap XML output ---
 Write-Host ""
 Write-Host "Waiting for background nmap scan to complete..." -ForegroundColor Yellow
 $elapsed = 0
 $interval = 5
-while (-not (Test-Path $XmlPath) -and $elapsed -lt $TimeoutSeconds) {
+$xmlComplete = $false
+$launcherPid = $global:NmapScanHostPid
+while ($elapsed -lt $TimeoutSeconds) {
+    # Check for error sidecar first so failures surface quickly.
+    if (Test-Path "$XmlPath.err") {
+        break
+    }
+
+    $xmlExists = Test-Path $XmlPath
+    $xmlComplete = $xmlExists -and (Test-NmapXmlComplete -Path $XmlPath)
+    $scanStillRunning = $false
+    if ($launcherPid) {
+        $scanStillRunning = $null -ne (Get-Process -Id $launcherPid -ErrorAction SilentlyContinue)
+    }
+
+    if ($xmlComplete -and (-not $launcherPid -or -not $scanStillRunning)) {
+        break
+    }
+
     Start-Sleep -Seconds $interval
     $elapsed += $interval
     if ($elapsed % 30 -eq 0) {
@@ -81,13 +118,31 @@ if (-not (Test-Path $XmlPath)) {
     return
 }
 
+if (-not (Test-NmapXmlComplete -Path $XmlPath)) {
+    Write-Log -Message "Nmap XML appears incomplete after $TimeoutSeconds seconds (missing </nmaprun>). Skipping dynamic rule creation." -Level "WARNING" -LogFile $LogFile
+    Write-Host "Nmap output was incomplete. Skipping dynamic rule creation." -ForegroundColor Red
+    return
+}
+
 Write-Log -Message "Nmap scan complete. Parsing results..." -Level "INFO" -LogFile $LogFile
 
 # --- Parse nmap XML ---
-try {
-    [xml]$nmapXml = Get-Content $XmlPath -Raw
-} catch {
-    Write-Log -Message "Failed to parse nmap XML: $_" -Level "ERROR" -LogFile $LogFile
+$nmapXml = $null
+$parseError = $null
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    try {
+        [xml]$nmapXml = Get-Content $XmlPath -Raw -ErrorAction Stop
+        $parseError = $null
+        break
+    } catch {
+        $parseError = $_.Exception.Message
+        if ($attempt -lt 3) {
+            Start-Sleep -Seconds 2
+        }
+    }
+}
+if (-not $nmapXml) {
+    Write-Log -Message "Failed to parse nmap XML from '$XmlPath': $parseError" -Level "ERROR" -LogFile $LogFile
     Write-Host "Failed to parse nmap output." -ForegroundColor Red
     return
 }
