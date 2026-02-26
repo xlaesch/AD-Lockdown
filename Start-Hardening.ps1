@@ -359,5 +359,23 @@ if ($global:NmapScanXmlPath) {
     }
 }
 
+# Offer to disable Constrained Language Mode if it was enabled during this run
+$clmValue = [System.Environment]::GetEnvironmentVariable("__PSLockdownPolicy", "Machine")
+if ($clmValue -eq "4") {
+    Write-Host ""
+    Write-Host "PowerShell Constrained Language Mode is currently ENABLED (Machine-level)." -ForegroundColor Yellow
+    Write-Host "This restricts script execution and may interfere with administration tasks." -ForegroundColor Yellow
+    $disableCLM = $null
+    while ($disableCLM -notmatch '^[YyNn]$') {
+        $disableCLM = Read-Host "Disable Constrained Language Mode? (Y/N)"
+    }
+    if ($disableCLM -match '^[Yy]$') {
+        [System.Environment]::SetEnvironmentVariable("__PSLockdownPolicy", $null, "Machine")
+        Write-Log -Message "PowerShell Constrained Language Mode disabled (Machine environment variable removed)." -Level "SUCCESS" -LogFile $LogFile
+    } else {
+        Write-Log -Message "PowerShell Constrained Language Mode left enabled." -Level "INFO" -LogFile $LogFile
+    }
+}
+
 Write-Log -Message "=== Windows Hardening Process Complete ===" -Level "INFO" -LogFile $LogFile
 Write-Host "`nHardening complete. Review log at: $LogFile" -ForegroundColor Green

@@ -18,10 +18,8 @@ function Set-RegistryValue {
             New-Item -Path $Path -Force | Out-Null
         }
         New-ItemProperty -Path $Path -Name $Name -Value $Value -PropertyType $Type -Force | Out-Null
-        return $true
     }
     catch {
         Write-Error "Failed to set registry value: $_"
-        return $false
     }
 }

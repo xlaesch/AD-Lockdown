@@ -78,16 +78,19 @@ if ($nmapExe) {
     $global:NmapScanXmlPath = Join-Path $env:TEMP "nmap_scan_$(Get-Date -Format 'yyyyMMdd_HHmmss').xml"
 
     $scanScript = @"
+`$Host.UI.RawUI.WindowTitle = 'Nmap Scan -- localhost (all ports)'
 try {
-    & '$nmapExe' -sT -sU -sV -O -T4 -p- -oX '$($global:NmapScanXmlPath)' localhost 2>&1 | Out-Null
+    & '$nmapExe' -sT -sU -sV -O -T4 -vvvv -p- -oX '$($global:NmapScanXmlPath)' localhost
 } catch {
     `$_ | Out-File '$($global:NmapScanXmlPath).err'
 }
+Write-Host '`nNmap scan complete. This window will close in 10 seconds...' -ForegroundColor Green
+Start-Sleep -Seconds 10
 "@
 
-    Write-Log -Message "Launching background nmap scan -> $($global:NmapScanXmlPath)" -Level "INFO" -LogFile $LogFile
-    Start-Process powershell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $scanScript -WindowStyle Hidden
-    Write-Log -Message "Nmap scan running in background (full TCP+UDP, all ports). Results will be processed after all modules complete." -Level "INFO" -LogFile $LogFile
+    Write-Log -Message "Launching nmap scan -> $($global:NmapScanXmlPath)" -Level "INFO" -LogFile $LogFile
+    Start-Process powershell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $scanScript -WindowStyle Normal
+    Write-Log -Message "Nmap scan running in visible window (full TCP+UDP, all ports, -vvvv). Results will be processed after all modules complete." -Level "INFO" -LogFile $LogFile
 } else {
     Write-Log -Message "Nmap not available -- skipping dynamic service discovery." -Level "WARNING" -LogFile $LogFile
 }
