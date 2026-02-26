@@ -29,6 +29,8 @@ param (
 $ScriptRoot = $PSScriptRoot
 $LogDir = "$ScriptRoot/logs"
 $LogFile = "$LogDir/hardening_$(Get-Date -Format 'yyyy-MM-dd').log"
+$ToolsDir = Join-Path $ScriptRoot "tools"
+$ToolsZip = Join-Path $ScriptRoot "tools.zip"
 
 # Ensure Log Directory Exists
 if (-not (Test-Path $LogDir)) {
@@ -184,15 +186,36 @@ if ($isSystem) {
     Write-Host "  - SAM registry access (RID hijacking mitigation)" -ForegroundColor Yellow
     $elevateSystem = Read-Host "Re-launch as SYSTEM via PsExec? [y/n]"
     if ($elevateSystem -match '^(?i)y(es)?$') {
-        # Locate PsExec
-        $psExecPath = $null
-        foreach ($candidate in @(
-            "$ScriptRoot\PsExec.exe",
+        # Locate PsExec in known locations first.
+        $psExecPath = @(
             "$ScriptRoot\PsExec64.exe",
-            "$ScriptRoot\tools\PsExec.exe",
-            "$ScriptRoot\tools\PsExec64.exe"
-        )) {
-            if (Test-Path $candidate) { $psExecPath = $candidate; break }
+            "$ScriptRoot\PsExec.exe",
+            (Join-Path $ToolsDir "PsExec64.exe"),
+            (Join-Path $ToolsDir "PsExec.exe")
+        ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+        # If not already extracted, pull tools.zip before giving up.
+        if (-not $psExecPath -and (Test-Path $ToolsZip)) {
+            Write-Log -Message "PsExec not found in extracted tools. Extracting tools.zip..." -Level "INFO" -LogFile $LogFile
+            try {
+                if (-not (Test-Path $ToolsDir)) {
+                    New-Item -ItemType Directory -Path $ToolsDir -Force | Out-Null
+                }
+                Expand-Archive -Path $ToolsZip -DestinationPath $ToolsDir -Force
+                Write-Log -Message "tools.zip extracted to $ToolsDir for PsExec lookup." -Level "SUCCESS" -LogFile $LogFile
+            } catch {
+                Write-Log -Message "Failed to extract tools.zip for PsExec lookup: $_" -Level "ERROR" -LogFile $LogFile
+            }
+        }
+
+        # Search recursively under tools after extraction.
+        if (-not $psExecPath -and (Test-Path $ToolsDir)) {
+            $psExecPath = Get-ChildItem -Path $ToolsDir -Filter "PsExec64.exe" -File -Recurse -ErrorAction SilentlyContinue |
+                Select-Object -ExpandProperty FullName -First 1
+            if (-not $psExecPath) {
+                $psExecPath = Get-ChildItem -Path $ToolsDir -Filter "PsExec.exe" -File -Recurse -ErrorAction SilentlyContinue |
+                    Select-Object -ExpandProperty FullName -First 1
+            }
         }
         if (-not $psExecPath) {
             $psExecPath = Get-Command PsExec64.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
