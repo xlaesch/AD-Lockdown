@@ -1,6 +1,6 @@
 # 04_Service_Hardening.ps1
 # Handles disabling dangerous services, ensuring critical ones are running,
-# and — on Domain Controllers — DSRM, NTDS, and LDAP hardening.
+# and -- on Domain Controllers -- DSRM, NTDS, and LDAP hardening.
 
 param(
     [string]$LogFile,
@@ -23,11 +23,11 @@ Write-Log -Message "Starting Service Hardening..." -Level "INFO" -LogFile $LogFi
 # --- 1. Print Spooler (PrintNightmare) ---
 Write-Log -Message "Configuring Print Spooler..." -Level "INFO" -LogFile $LogFile
 if ($IsDomainController) {
-    # On DCs, PrintNightmare is critical — force disable without prompting
+    # On DCs, PrintNightmare is critical -- force disable without prompting
     try {
         Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
         Set-Service -Name "Spooler" -StartupType Disabled
-        Write-Log -Message "Print Spooler force-disabled (DC — PrintNightmare mitigation)." -Level "SUCCESS" -LogFile $LogFile
+        Write-Log -Message "Print Spooler force-disabled (DC -- PrintNightmare mitigation)." -Level "SUCCESS" -LogFile $LogFile
     } catch {
         Write-Log -Message "Failed to disable Print Spooler: $_" -Level "ERROR" -LogFile $LogFile
     }
@@ -111,7 +111,7 @@ if ($winrmChoice -eq '1') {
         Write-Log -Message "Failed to fully disable WinRM: $_" -Level "ERROR" -LogFile $LogFile
     }
 } else {
-    # Harden WinRM if left enabled — disallow unencrypted traffic
+    # Harden WinRM if left enabled -- disallow unencrypted traffic
     try {
         Set-RegistryValue -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service" -Name "AllowUnencryptedTraffic" -Value 0 -Type DWord
         Set-RegistryValue -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client" -Name "AllowUnencryptedTraffic" -Value 0 -Type DWord
@@ -302,7 +302,7 @@ if ($IsDomainController) {
 } # end DC-only block
 
 # ═════════════════════════════════════════════════════════════════════════════
-# ALL MACHINES — Ensure RDP is running
+# ALL MACHINES -- Ensure RDP is running
 # ═════════════════════════════════════════════════════════════════════════════
 
 # --- 12. Ensure Remote Desktop Service is Running ---

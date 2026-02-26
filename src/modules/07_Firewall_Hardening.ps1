@@ -1,6 +1,6 @@
 # 07_Firewall_Hardening.ps1
 # Handles Windows Firewall configuration, profiles, logging, rules,
-# and — on Domain Controllers — AD service inbound rules.
+# and -- on Domain Controllers -- AD service inbound rules.
 
 param(
     [string]$LogFile,
@@ -189,7 +189,7 @@ Add-FirewallRule -DisplayName "Allow LDAP Out (TCP)" -Direction "Outbound" -Prot
 Add-FirewallRule -DisplayName "Allow NTP Out" -Direction "Outbound" -Protocol "UDP" -RemotePort "123"
 
 # ═════════════════════════════════════════════════════════════════════════════
-# DOMAIN CONTROLLER ONLY — AD Service Inbound Rules
+# DOMAIN CONTROLLER ONLY -- AD Service Inbound Rules
 # ═════════════════════════════════════════════════════════════════════════════
 if ($IsDomainController) {
     Write-Log -Message "Applying Domain Controller firewall rules..." -Level "INFO" -LogFile $LogFile
@@ -226,7 +226,7 @@ if ($IsDomainController) {
     Add-FirewallRule -DisplayName "DC RPC Map In" -Direction "Inbound" -Protocol "TCP" -LocalPort "135" -RemoteAddress $TrustedNetwork
     Add-FirewallRule -DisplayName "DC RPC Map Out" -Direction "Outbound" -Protocol "TCP" -RemotePort "135" -RemoteAddress $TrustedNetwork
 
-    # W32Time (UDP 123 inbound — DC is authoritative time source)
+    # W32Time (UDP 123 inbound -- DC is authoritative time source)
     Add-FirewallRule -DisplayName "DC W32Time In" -Direction "Inbound" -Protocol "UDP" -LocalPort "123" -RemoteAddress $TrustedNetwork
 
     # Optional DC rules that are not always required/scored.
@@ -258,7 +258,7 @@ if ($IsDomainController) {
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
-# ALL MACHINES — Role-Specific & Blocking Rules
+# ALL MACHINES -- Role-Specific & Blocking Rules
 # ═════════════════════════════════════════════════════════════════════════════
 
 # --- 8. Role-Specific Rules (Prompted) ---
@@ -447,7 +447,7 @@ Write-Log -Message "LOLBin outbound blocking complete. Processed $($lolbinRuleTa
 
 # --- 10. Dynamic Firewall Rules (Nmap-based Service Discovery) ---
 # When run standalone (not via Start-Hardening.ps1), prompt and launch here.
-# When run via the controller, the scan is already running — this is a no-op.
+# When run via the controller, the scan is already running -- this is a no-op.
 if (-not $global:NmapScanXmlPath) {
     Write-Host ""
     $runNmap = Read-Host "Run bundled nmap (from tools.zip) for dynamic service discovery? [y/n]"
@@ -458,7 +458,7 @@ if (-not $global:NmapScanXmlPath) {
         Write-Log -Message "User declined nmap dynamic scan." -Level "INFO" -LogFile $LogFile
     }
 } else {
-    # Scan already launched by controller — just capture the trusted network
+    # Scan already launched by controller -- just capture the trusted network
     $global:NmapTrustedNetwork = $TrustedNetwork
 }
 

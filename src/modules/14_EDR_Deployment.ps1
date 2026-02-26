@@ -52,7 +52,7 @@ if (-not $SysmonExePath) {
         }
 
         if ($SysmonInstalled) {
-            # Sysmon already installed — update configuration
+            # Sysmon already installed -- update configuration
             Write-Log -Message "Sysmon service '$SysmonServiceName' already exists. Updating configuration..." -Level "INFO" -LogFile $LogFile
             if (Test-Path $SysmonConfigPath) {
                 & $SysmonExePath -c $SysmonConfigPath -accepteula 2>&1 | Out-Null
@@ -143,23 +143,23 @@ if (-not (Test-Path $BluespawnExePath)) {
 # ============================================================
 Write-Log -Message "--- EDR Deployment Summary ---" -Level "INFO" -LogFile $LogFile
 
-# Sysmon status — check both service names
+# Sysmon status -- check both service names
 $SysmonSvc = Get-Service -Name "Sysmon64" -ErrorAction SilentlyContinue
 if (-not $SysmonSvc) { $SysmonSvc = Get-Service -Name "Sysmon" -ErrorAction SilentlyContinue }
 if ($SysmonSvc -and $SysmonSvc.Status -eq 'Running') {
-    Write-Log -Message "  [Sysmon]    ACTIVE  — Service '$($SysmonSvc.Name)' running. Logs: Event Viewer > Sysmon/Operational" -Level "SUCCESS" -LogFile $LogFile
+    Write-Log -Message "  [Sysmon]    ACTIVE  -- Service '$($SysmonSvc.Name)' running. Logs: Event Viewer > Sysmon/Operational" -Level "SUCCESS" -LogFile $LogFile
 } elseif ($SysmonSvc) {
-    Write-Log -Message "  [Sysmon]    WARNING — Service exists but status: $($SysmonSvc.Status)" -Level "WARNING" -LogFile $LogFile
+    Write-Log -Message "  [Sysmon]    WARNING -- Service exists but status: $($SysmonSvc.Status)" -Level "WARNING" -LogFile $LogFile
 } else {
-    Write-Log -Message "  [Sysmon]    NOT DEPLOYED — Service not found." -Level "WARNING" -LogFile $LogFile
+    Write-Log -Message "  [Sysmon]    NOT DEPLOYED -- Service not found." -Level "WARNING" -LogFile $LogFile
 }
 
 # BLUESPAWN status
 $BluespawnProc = Get-Process -Name "BLUESPAWN-client-x64" -ErrorAction SilentlyContinue
 if ($BluespawnProc) {
-    Write-Log -Message "  [BLUESPAWN] ACTIVE  — PID: $($BluespawnProc.Id -join ', '). Log: $BluespawnLogFile" -Level "SUCCESS" -LogFile $LogFile
+    Write-Log -Message "  [BLUESPAWN] ACTIVE  -- PID: $($BluespawnProc.Id -join ', '). Log: $BluespawnLogFile" -Level "SUCCESS" -LogFile $LogFile
 } else {
-    Write-Log -Message "  [BLUESPAWN] NOT RUNNING — Process not found." -Level "WARNING" -LogFile $LogFile
+    Write-Log -Message "  [BLUESPAWN] NOT RUNNING -- Process not found." -Level "WARNING" -LogFile $LogFile
 }
 
 Write-Log -Message "Local EDR Deployment module completed." -Level "INFO" -LogFile $LogFile

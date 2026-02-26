@@ -1,6 +1,6 @@
 # 05_Audit_Logging.ps1
 # Handles audit policy configuration, LSASS protection, credential hardening,
-# and — on Domain Controllers — AD object auditing and GPO permission checks.
+# and -- on Domain Controllers -- AD object auditing and GPO permission checks.
 
 param(
     [string]$LogFile,

@@ -1,6 +1,6 @@
 # 10_Cert_Authority.ps1
 # Handles Active Directory Certificate Services (ADCS) hardening.
-# DC-only — skips entirely on non-DC machines.
+# DC-only -- skips entirely on non-DC machines.
 
 param(
     [string]$LogFile,

@@ -418,9 +418,9 @@ try {
 # --- 11. Disable CMD System-Wide ---
 Write-Log -Message "Disabling CMD access system-wide..." -Level "INFO" -LogFile $LogFile
 try {
-    # Value 1 = Disable CMD completely (interactive + inline) — HKLM applies to all users
+    # Value 1 = Disable CMD completely (interactive + inline) -- HKLM applies to all users
     Set-RegistryValue -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" -Name "DisableCMD" -Value 1 -Type DWord
-    # AutoRun exit as fallback — apply to default profile (all users) and current user
+    # AutoRun exit as fallback -- apply to default profile (all users) and current user
     Set-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\Command Processor" -Name "AutoRun" -Value "exit" -Type String
     Set-RegistryValue -Path "HKCU:\Software\Microsoft\Command Processor" -Name "AutoRun" -Value "exit" -Type String
     Write-Log -Message "CMD disabled system-wide (DisableCMD policy + AutoRun exit)." -Level "SUCCESS" -LogFile $LogFile

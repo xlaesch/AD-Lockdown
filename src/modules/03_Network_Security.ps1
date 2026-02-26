@@ -1,6 +1,6 @@
 # 03_Network_Security.ps1
 # Handles network-level hardening: SMB, LLMNR, NetBIOS, IPv6, NTLM, LSA,
-# DNS, and — on Domain Controllers — LDAP/Kerberos, Zerologon, AD firewall
+# DNS, and -- on Domain Controllers -- LDAP/Kerberos, Zerologon, AD firewall
 # rules, DNS server security, and time synchronization.
 
 param(
@@ -624,7 +624,7 @@ if ($IsDomainController) {
 } # end DC-only block
 
 # ═════════════════════════════════════════════════════════════════════════════
-# ALL MACHINES — SMB Share Management (interactive, at the end)
+# ALL MACHINES -- SMB Share Management (interactive, at the end)
 # ═════════════════════════════════════════════════════════════════════════════
 Write-Log -Message "=== SMB Share Management ===" -Level "INFO" -LogFile $LogFile
 Write-Host ""

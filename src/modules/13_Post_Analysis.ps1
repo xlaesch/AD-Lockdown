@@ -1,7 +1,7 @@
 # 13_Post_Analysis.ps1
 # Runs post-hardening analysis tools: Locksmith, Certify, PingCastle,
 # and SharpHound (BloodHound).
-# DC-only — skips entirely on non-DC machines.
+# DC-only -- skips entirely on non-DC machines.
 
 param(
     [string]$LogFile,

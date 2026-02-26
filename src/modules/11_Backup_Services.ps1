@@ -161,7 +161,7 @@ quit
     }
 
 } else {
-    Write-Log -Message "Skipping DC-specific backups (GPO, DNS, AD, SYSVOL) — not a Domain Controller." -Level "INFO" -LogFile $LogFile
+    Write-Log -Message "Skipping DC-specific backups (GPO, DNS, AD, SYSVOL) -- not a Domain Controller." -Level "INFO" -LogFile $LogFile
 }
 
 # ═════════════════════════════════════════════════════════════════════════════

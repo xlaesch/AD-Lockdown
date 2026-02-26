@@ -3,7 +3,7 @@
 # of localhost in a background process. Sets $global:NmapScanXmlPath
 # so the caller can later invoke Invoke-NmapRuleCreator.ps1.
 #
-# Safe to call multiple times — skips if a scan is already running.
+# Safe to call multiple times -- skips if a scan is already running.
 
 param(
     [Parameter(Mandatory = $true)]
@@ -16,7 +16,7 @@ if (-not (Get-Command Write-Log -ErrorAction SilentlyContinue)) {
 
 # Guard: don't launch twice
 if ($global:NmapScanXmlPath) {
-    Write-Log -Message "Nmap background scan already launched — skipping." -Level "INFO" -LogFile $LogFile
+    Write-Log -Message "Nmap background scan already launched -- skipping." -Level "INFO" -LogFile $LogFile
     return
 }
 
@@ -89,5 +89,5 @@ try {
     Start-Process powershell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $scanScript -WindowStyle Hidden
     Write-Log -Message "Nmap scan running in background (full TCP+UDP, all ports). Results will be processed after all modules complete." -Level "INFO" -LogFile $LogFile
 } else {
-    Write-Log -Message "Nmap not available — skipping dynamic service discovery." -Level "WARNING" -LogFile $LogFile
+    Write-Log -Message "Nmap not available -- skipping dynamic service discovery." -Level "WARNING" -LogFile $LogFile
 }

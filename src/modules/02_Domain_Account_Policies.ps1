@@ -1,6 +1,6 @@
 # 02_Domain_Account_Policies.ps1
 # Handles AD account policies, group memberships, delegation hardening, and
-# domain-level security controls.  DC-only — skips entirely on non-DC machines.
+# domain-level security controls.  DC-only -- skips entirely on non-DC machines.
 
 param(
     [string]$LogFile,
@@ -20,7 +20,7 @@ if (-not (Get-Command New-RandomPassword -ErrorAction SilentlyContinue)) {
 
 # ── Gate: DC-only ────────────────────────────────────────────────────────────
 if (-not $IsDomainController) {
-    Write-Log -Message "Skipping Domain Account Policies — not a Domain Controller." -Level "INFO" -LogFile $LogFile
+    Write-Log -Message "Skipping Domain Account Policies -- not a Domain Controller." -Level "INFO" -LogFile $LogFile
     return
 }
 
@@ -394,7 +394,7 @@ try {
         $selection = Read-Host "Enter numbers to add (e.g. 1,3,5), 'all', or 'n' to skip"
 
         if ($selection -eq 'n' -or [string]::IsNullOrWhiteSpace($selection)) {
-            Write-Log -Message "Protected Users — skipped by operator." -Level "INFO" -LogFile $LogFile
+            Write-Log -Message "Protected Users -- skipped by operator." -Level "INFO" -LogFile $LogFile
         } elseif ($selection -eq 'all') {
             foreach ($account in $notYetProtected) {
                 try {
@@ -420,7 +420,7 @@ try {
                     }
                 }
             } else {
-                Write-Log -Message "Protected Users — no valid selections entered." -Level "WARNING" -LogFile $LogFile
+                Write-Log -Message "Protected Users -- no valid selections entered." -Level "WARNING" -LogFile $LogFile
             }
         }
     } else {
@@ -718,7 +718,7 @@ foreach ($groupName in $PrivilegedGroups) {
     try {
         $group = Get-ADGroup -Filter "Name -eq '$groupName'" -ErrorAction SilentlyContinue
         if (-not $group) {
-            Write-Log -Message "Group '$groupName' not found — skipping." -Level "INFO" -LogFile $LogFile
+            Write-Log -Message "Group '$groupName' not found -- skipping." -Level "INFO" -LogFile $LogFile
             continue
         }
 
@@ -743,7 +743,7 @@ foreach ($groupName in $PrivilegedGroups) {
 
             if ($isBuiltinAdmin) {
                 $protected += $m
-                Write-Host "  [*] $($m.SamAccountName)  (built-in Administrator — protected)" -ForegroundColor DarkGray
+                Write-Host "  [*] $($m.SamAccountName)  (built-in Administrator -- protected)" -ForegroundColor DarkGray
             } else {
                 $removable += $m
             }

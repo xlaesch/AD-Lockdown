@@ -5,7 +5,7 @@
     Orchestrates the execution of hardening modules for all Windows machines
     in Red vs Blue (CCDC) competition environments. Automatically detects
     whether it is running on a Domain Controller and adjusts behavior
-    accordingly — running AD-specific modules on DCs and general hardening
+    accordingly -- running AD-specific modules on DCs and general hardening
     modules on workstations, member servers, IIS boxes, etc.
 .PARAMETER IncludeModule
     Specify module name patterns to run (e.g. "Network", "Firewall").
@@ -59,10 +59,10 @@ if ($DebugMode) {
 }
 
 if ($global:IsDomainController) {
-    Write-Log -Message "Domain Controller detected — AD hardening path will be used." -Level "INFO" -LogFile $LogFile
+    Write-Log -Message "Domain Controller detected -- AD hardening path will be used." -Level "INFO" -LogFile $LogFile
     Write-Host "Domain Controller detected." -ForegroundColor Yellow
 } else {
-    Write-Log -Message "Non-DC machine detected — general hardening path will be used." -Level "INFO" -LogFile $LogFile
+    Write-Log -Message "Non-DC machine detected -- general hardening path will be used." -Level "INFO" -LogFile $LogFile
     Write-Host "Workstation / Member Server detected." -ForegroundColor Yellow
 }
 
@@ -217,10 +217,10 @@ if ($isSystem) {
         } else {
             Write-Host "PsExec not found. Place PsExec.exe or PsExec64.exe in the script root or on PATH." -ForegroundColor Red
             Write-Host "Continuing as Administrator (some operations may fail)." -ForegroundColor Yellow
-            Write-Log -Message "PsExec not found — continuing as Administrator." -Level "WARNING" -LogFile $LogFile
+            Write-Log -Message "PsExec not found -- continuing as Administrator." -Level "WARNING" -LogFile $LogFile
         }
     } else {
-        Write-Log -Message "User declined SYSTEM elevation — continuing as Administrator." -Level "INFO" -LogFile $LogFile
+        Write-Log -Message "User declined SYSTEM elevation -- continuing as Administrator." -Level "INFO" -LogFile $LogFile
     }
 }
 
@@ -307,7 +307,7 @@ try {
     if (Test-Path $backupModule) {
         & $backupModule -LogFile $LogFile -IsDomainController $global:IsDomainController -Phase "Pre"
     } else {
-        Write-Log -Message "Backup module not found — skipping pre-hardening backup." -Level "WARNING" -LogFile $LogFile
+        Write-Log -Message "Backup module not found -- skipping pre-hardening backup." -Level "WARNING" -LogFile $LogFile
     }
 } catch {
     Write-Log -Message "Pre-hardening backup failed: $_" -Level "ERROR" -LogFile $LogFile
@@ -335,7 +335,7 @@ try {
     if (Test-Path $backupModule) {
         & $backupModule -LogFile $LogFile -IsDomainController $global:IsDomainController -Phase "Post"
     } else {
-        Write-Log -Message "Backup module not found — skipping post-hardening backup." -Level "WARNING" -LogFile $LogFile
+        Write-Log -Message "Backup module not found -- skipping post-hardening backup." -Level "WARNING" -LogFile $LogFile
     }
 } catch {
     Write-Log -Message "Post-hardening backup failed: $_" -Level "ERROR" -LogFile $LogFile
