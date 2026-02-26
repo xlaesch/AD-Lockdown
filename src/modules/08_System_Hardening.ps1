@@ -318,9 +318,9 @@ if ($cleanStartup -eq 'y') {
 
 # --- 6. Scheduled Task Audit (PROMPTED) ---
 Write-Log -Message "=== Scheduled Task Audit ===" -Level "INFO" -LogFile $LogFile
-Write-Host "IMPACT: Removing all scheduled tasks is very aggressive. Some may be required for scoring." -ForegroundColor Yellow
-Write-Host "  [1] Remove ALL scheduled tasks" -ForegroundColor Yellow
-Write-Host "  [2] List tasks for review (no removal)" -ForegroundColor Yellow
+Write-Host "IMPACT: Removing scheduled tasks is aggressive. Some may be required for scoring." -ForegroundColor Yellow
+Write-Host "  [1] Remove ALL non-system scheduled tasks" -ForegroundColor Yellow
+Write-Host "  [2] List tasks and choose which to disable" -ForegroundColor Yellow
 Write-Host "  [3] Skip" -ForegroundColor Yellow
 $taskChoice = Read-Host "Scheduled task action [1/2/3]"
 
@@ -335,22 +335,62 @@ switch ($taskChoice) {
     }
     "2" {
         try {
-            $tasks = Get-ScheduledTask | Where-Object { $_.TaskPath -notlike "\Microsoft\Windows\*" }
-            if ($tasks) {
+            $tasks = @(Get-ScheduledTask | Where-Object { $_.TaskPath -notlike "\Microsoft\Windows\*" })
+            if ($tasks.Count -gt 0) {
                 Write-Host "`nNon-system scheduled tasks:" -ForegroundColor Cyan
-                $tasks | ForEach-Object {
-                    Write-Host "  [$($_.State)] $($_.TaskPath)$($_.TaskName)" -ForegroundColor Yellow
-                    $actions = $_.Actions
-                    foreach ($action in $actions) {
+                for ($i = 0; $i -lt $tasks.Count; $i++) {
+                    $t = $tasks[$i]
+                    Write-Host "  [$($i + 1)] [$($t.State)] $($t.TaskPath)$($t.TaskName)" -ForegroundColor Yellow
+                    foreach ($action in $t.Actions) {
                         if ($action.Execute) {
-                            Write-Host "    Execute: $($action.Execute) $($action.Arguments)" -ForegroundColor Gray
+                            Write-Host "       Execute: $($action.Execute) $($action.Arguments)" -ForegroundColor Gray
                         }
                     }
                 }
+                Write-Host ""
+                Write-Host "Enter task numbers to DISABLE (comma-separated, e.g. 1,3,5), 'all' for all, or 'none' to skip:" -ForegroundColor Cyan
+                $selection = Read-Host "Selection"
+
+                $toDisable = @()
+                if ($selection -match '^[Aa]ll$') {
+                    $toDisable = $tasks
+                } elseif ($selection -notmatch '^[Nn]one$' -and $selection.Trim() -ne '') {
+                    $indices = $selection -split ',' | ForEach-Object {
+                        $num = $_.Trim() -as [int]
+                        if ($num -and $num -ge 1 -and $num -le $tasks.Count) { $num - 1 }
+                    }
+                    $toDisable = $indices | ForEach-Object { $tasks[$_] }
+                }
+
+                if ($toDisable.Count -gt 0) {
+                    foreach ($task in $toDisable) {
+                        try {
+                            $task | Disable-ScheduledTask -ErrorAction Stop | Out-Null
+                            Write-Log -Message "Disabled scheduled task: $($task.TaskPath)$($task.TaskName)" -Level "SUCCESS" -LogFile $LogFile
+                        } catch {
+                            Write-Log -Message "Failed to disable task $($task.TaskPath)$($task.TaskName): $_" -Level "ERROR" -LogFile $LogFile
+                        }
+                    }
+                    Write-Host ""
+                    Write-Host "Do you also want to REMOVE (unregister) these disabled tasks? [y/n]" -ForegroundColor Yellow
+                    $removeChoice = Read-Host "Remove"
+                    if ($removeChoice -match '^[Yy]$') {
+                        foreach ($task in $toDisable) {
+                            try {
+                                $task | Unregister-ScheduledTask -Confirm:$false -ErrorAction Stop
+                                Write-Log -Message "Removed scheduled task: $($task.TaskPath)$($task.TaskName)" -Level "SUCCESS" -LogFile $LogFile
+                            } catch {
+                                Write-Log -Message "Failed to remove task $($task.TaskPath)$($task.TaskName): $_" -Level "ERROR" -LogFile $LogFile
+                            }
+                        }
+                    }
+                } else {
+                    Write-Log -Message "Scheduled task audit complete (no tasks selected)." -Level "INFO" -LogFile $LogFile
+                }
             } else {
                 Write-Host "No non-system scheduled tasks found." -ForegroundColor Green
+                Write-Log -Message "Scheduled task audit complete -- no non-system tasks found." -Level "INFO" -LogFile $LogFile
             }
-            Write-Log -Message "Scheduled task audit complete (review only)." -Level "INFO" -LogFile $LogFile
         } catch {
             Write-Log -Message "Failed to list scheduled tasks: $_" -Level "ERROR" -LogFile $LogFile
         }
@@ -420,12 +460,22 @@ if (-not $SkipSFC) {
     Write-Log -Message "SFC scan skipped (SkipSFC flag set)." -Level "INFO" -LogFile $LogFile
 }
 
-try {
-    sc.exe config trustedinstaller start= auto 2>&1 | Out-Null
-    DISM /Online /Cleanup-Image /RestoreHealth 2>&1 | Out-Null
-    Write-Log -Message "DISM RestoreHealth completed." -Level "SUCCESS" -LogFile $LogFile
-} catch {
-    Write-Log -Message "DISM RestoreHealth failed: $_" -Level "WARNING" -LogFile $LogFile
+$runDism = $null
+while ($runDism -notmatch '^[YyNn]$') {
+    $runDism = Read-Host "Run DISM /RestoreHealth? This can take 10-20+ minutes (Y/N)"
+}
+if ($runDism -match '^[Yy]$') {
+    Write-Log -Message "Running DISM RestoreHealth..." -Level "INFO" -LogFile $LogFile
+    try {
+        sc.exe config trustedinstaller start= auto 2>&1 | Out-Null
+        Write-Host "Running DISM /Online /Cleanup-Image /RestoreHealth (this will take a while)..." -ForegroundColor Cyan
+        DISM /Online /Cleanup-Image /RestoreHealth 2>&1 | Out-Null
+        Write-Log -Message "DISM RestoreHealth completed." -Level "SUCCESS" -LogFile $LogFile
+    } catch {
+        Write-Log -Message "DISM RestoreHealth failed: $_" -Level "WARNING" -LogFile $LogFile
+    }
+} else {
+    Write-Log -Message "DISM RestoreHealth skipped by user." -Level "INFO" -LogFile $LogFile
 }
 
 # --- 11. Disable CMD System-Wide ---
