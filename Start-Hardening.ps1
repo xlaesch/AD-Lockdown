@@ -346,8 +346,18 @@ if ($global:SecretsFilePassword -and $global:RotatedPasswordFile) {
     Protect-SecretsFile -FilePath $global:RotatedPasswordFile -Password $global:SecretsFilePassword -LogFile $LogFile
 }
 
-# Process nmap dynamic firewall rules if a background scan was started
-if ($global:NmapScanXmlPath) {
+# Process nmap dynamic firewall rules if a tracked background scan is active or output exists
+$hasNmapXmlPath = -not [string]::IsNullOrWhiteSpace($global:NmapScanXmlPath)
+$hasRunningNmap = $null -ne (Get-Process -Name "nmap" -ErrorAction SilentlyContinue)
+$hasNmapXmlFile = $hasNmapXmlPath -and (Test-Path $global:NmapScanXmlPath)
+
+if ($hasNmapXmlPath -and -not $hasRunningNmap -and -not $hasNmapXmlFile) {
+    Write-Log -Message "Stale nmap scan state detected (no running process and XML missing). Skipping dynamic firewall rule processing." -Level "WARNING" -LogFile $LogFile
+    $global:NmapScanXmlPath = $null
+    $hasNmapXmlPath = $false
+}
+
+if ($hasNmapXmlPath) {
     Write-Log -Message "Processing nmap dynamic firewall rules..." -Level "INFO" -LogFile $LogFile
     try {
         & "$ScriptRoot/src/functions/Invoke-NmapRuleCreator.ps1" `
@@ -357,6 +367,8 @@ if ($global:NmapScanXmlPath) {
     } catch {
         Write-Log -Message "Error running Invoke-NmapRuleCreator: $_" -Level "ERROR" -LogFile $LogFile
     }
+} elseif ($hasRunningNmap) {
+    Write-Log -Message "nmap process detected, but this run has no tracked XML path. Dynamic firewall rule processing skipped." -Level "WARNING" -LogFile $LogFile
 }
 
 # Offer to disable Constrained Language Mode if it was enabled during this run

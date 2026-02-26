@@ -14,9 +14,10 @@ if (-not (Get-Command Write-Log -ErrorAction SilentlyContinue)) {
     . "$PSScriptRoot/Write-Log.ps1"
 }
 
-# Guard: don't launch twice
-if ($global:NmapScanXmlPath) {
-    Write-Log -Message "Nmap background scan already launched -- skipping." -Level "INFO" -LogFile $LogFile
+# Guard: don't launch if nmap is already running
+$existingNmap = Get-Process -Name "nmap" -ErrorAction SilentlyContinue
+if ($existingNmap) {
+    Write-Log -Message "Nmap process already running (PID: $($existingNmap.Id -join ', ')). Skipping duplicate launch." -Level "INFO" -LogFile $LogFile
     return
 }
 

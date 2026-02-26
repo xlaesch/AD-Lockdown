@@ -447,8 +447,19 @@ Write-Log -Message "LOLBin outbound blocking complete. Processed $($lolbinRuleTa
 
 # --- 10. Dynamic Firewall Rules (Nmap-based Service Discovery) ---
 # When run standalone (not via Start-Hardening.ps1), prompt and launch here.
-# When run via the controller, the scan is already running -- this is a no-op.
-if (-not $global:NmapScanXmlPath) {
+# When run via the controller, the scan is usually already running.
+$hasNmapXmlPath = -not [string]::IsNullOrWhiteSpace($global:NmapScanXmlPath)
+$hasRunningNmap = $null -ne (Get-Process -Name "nmap" -ErrorAction SilentlyContinue)
+$hasNmapXmlFile = $hasNmapXmlPath -and (Test-Path $global:NmapScanXmlPath)
+
+# Clear stale state left in the current PowerShell session.
+if ($hasNmapXmlPath -and -not $hasRunningNmap -and -not $hasNmapXmlFile) {
+    Write-Log -Message "Stale nmap scan state detected (no running process and XML missing). Resetting nmap scan path." -Level "WARNING" -LogFile $LogFile
+    $global:NmapScanXmlPath = $null
+    $hasNmapXmlPath = $false
+}
+
+if (-not $hasNmapXmlPath -and -not $hasRunningNmap) {
     Write-Host ""
     $runNmap = Read-Host "Run bundled nmap (from tools.zip) for dynamic service discovery? [y/n]"
     if ($runNmap -match '^(?i)y(es)?$') {
@@ -458,7 +469,9 @@ if (-not $global:NmapScanXmlPath) {
         Write-Log -Message "User declined nmap dynamic scan." -Level "INFO" -LogFile $LogFile
     }
 } else {
-    # Scan already launched by controller -- just capture the trusted network
+    if ($hasRunningNmap -and -not $hasNmapXmlPath) {
+        Write-Log -Message "nmap process detected, but no tracked XML path is set. Dynamic rule import will be skipped unless this script launches the scan." -Level "WARNING" -LogFile $LogFile
+    }
     $global:NmapTrustedNetwork = $TrustedNetwork
 }
 
