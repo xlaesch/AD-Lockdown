@@ -6,6 +6,10 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Purpose](https://img.shields.io/badge/Purpose-CCDC%20Competition-red)
 ![Scope](https://img.shields.io/badge/Scope-Full%20Windows%20Hardening-blueviolet?logo=windows-terminal&logoColor=white)
+![Stars](https://img.shields.io/github/stars/xlaesch/Win-Hardening)
+![Last Commit](https://img.shields.io/github/last-commit/xlaesch/Win-Hardening)
+![Issues](https://img.shields.io/github/issues/xlaesch/Win-Hardening)
+![Repo Size](https://img.shields.io/github/repo-size/xlaesch/Win-Hardening)
 
 > A comprehensive Windows hardening automation framework built for the Collegiate Cyber Defense Competition (CCDC). Covers the full stack — OS, network, services, firewall, EDR — with additional Active Directory modules that activate automatically on Domain Controllers.
 
@@ -116,65 +120,3 @@ Win-Hardening/
 └── tools/                     # Extracted binaries (gitignored)
 ```
 
----
-
-## Badges — How to Add Your Own
-
-The badges at the top of this README use [Shields.io](https://shields.io/), a free service that generates SVG badge images from a URL.
-
-### Static Badges
-
-The simplest format is:
-
-```markdown
-![Alt Text](https://img.shields.io/badge/<LABEL>-<MESSAGE>-<COLOR>)
-```
-
-**Examples:**
-
-```markdown
-![Version](https://img.shields.io/badge/Version-2.0-blue)
-![Build](https://img.shields.io/badge/Build-Passing-brightgreen)
-![Status](https://img.shields.io/badge/Status-Beta-yellow)
-```
-
-Special characters in the label or message need URL encoding (`-` → `--`, `_` → `__`, spaces → `%20`).
-
-### With Logos
-
-Add `?logo=<name>&logoColor=white` to include an icon from [Simple Icons](https://simpleicons.org/):
-
-```markdown
-![PowerShell](https://img.shields.io/badge/PowerShell-5.1-blue?logo=powershell&logoColor=white)
-![GitHub](https://img.shields.io/badge/GitHub-Repo-black?logo=github)
-```
-
-### Dynamic / Live Badges
-
-Shields.io can pull live data from GitHub, npm, Docker Hub, etc.:
-
-```markdown
-<!-- GitHub stars -->
-![Stars](https://img.shields.io/github/stars/YOUR_USER/YOUR_REPO)
-
-<!-- GitHub last commit -->
-![Last Commit](https://img.shields.io/github/last-commit/YOUR_USER/YOUR_REPO)
-
-<!-- GitHub issues -->
-![Issues](https://img.shields.io/github/issues/YOUR_USER/YOUR_REPO)
-
-<!-- GitHub license (auto-detected from repo) -->
-![License](https://img.shields.io/github/license/YOUR_USER/YOUR_REPO)
-
-<!-- GitHub repo size -->
-![Repo Size](https://img.shields.io/github/repo-size/YOUR_USER/YOUR_REPO)
-
-<!-- GitHub release -->
-![Release](https://img.shields.io/github/v/release/YOUR_USER/YOUR_REPO)
-```
-
-Replace `YOUR_USER/YOUR_REPO` with your GitHub path (e.g., `octocat/Hello-World`). These update automatically.
-
-### Badge Builder
-
-Use the interactive builder at **https://shields.io/badges** to visually create custom badges with any color, style, and logo combination.
