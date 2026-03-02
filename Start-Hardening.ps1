@@ -331,17 +331,24 @@ if ($ModulesToExecute | Where-Object { $SecretsModules -contains $_ }) {
     Write-Log -Message "Secrets output will be encrypted after module execution." -Level "INFO" -LogFile $LogFile
 }
 
-# ── Pre-Hardening Backup ─────────────────────────────────────────────────────
-Write-Log -Message "=== Running Pre-Hardening Backup ===" -Level "INFO" -LogFile $LogFile
-try {
-    $backupModule = "$ScriptRoot/src/modules/11_Backup_Services.ps1"
-    if (Test-Path $backupModule) {
-        & $backupModule -LogFile $LogFile -IsDomainController $global:IsDomainController -Phase "Pre"
-    } else {
-        Write-Log -Message "Backup module not found -- skipping pre-hardening backup." -Level "WARNING" -LogFile $LogFile
+# ── Pre-Hardening Backup (first run only) ────────────────────────────────────
+$preBackupSentinel = "$ScriptRoot/.pre-backup-done"
+if (-not (Test-Path $preBackupSentinel)) {
+    Write-Log -Message "=== Running Pre-Hardening Backup (first run) ===" -Level "INFO" -LogFile $LogFile
+    try {
+        $backupModule = "$ScriptRoot/src/modules/11_Backup_Services.ps1"
+        if (Test-Path $backupModule) {
+            & $backupModule -LogFile $LogFile -IsDomainController $global:IsDomainController -Phase "Pre"
+            New-Item -Path $preBackupSentinel -ItemType File -Force | Out-Null
+            Write-Log -Message "Pre-hardening backup sentinel created." -Level "INFO" -LogFile $LogFile
+        } else {
+            Write-Log -Message "Backup module not found -- skipping pre-hardening backup." -Level "WARNING" -LogFile $LogFile
+        }
+    } catch {
+        Write-Log -Message "Pre-hardening backup failed: $_" -Level "ERROR" -LogFile $LogFile
     }
-} catch {
-    Write-Log -Message "Pre-hardening backup failed: $_" -Level "ERROR" -LogFile $LogFile
+} else {
+    Write-Log -Message "Pre-hardening backup already completed in a previous run -- skipping." -Level "INFO" -LogFile $LogFile
 }
 
 foreach ($Module in $ModulesToExecute) {
@@ -359,17 +366,22 @@ foreach ($Module in $ModulesToExecute) {
     }
 }
 
-# ── Post-Hardening Backup ────────────────────────────────────────────────────
-Write-Log -Message "=== Running Post-Hardening Backup ===" -Level "INFO" -LogFile $LogFile
-try {
-    $backupModule = "$ScriptRoot/src/modules/11_Backup_Services.ps1"
-    if (Test-Path $backupModule) {
-        & $backupModule -LogFile $LogFile -IsDomainController $global:IsDomainController -Phase "Post"
-    } else {
-        Write-Log -Message "Backup module not found -- skipping post-hardening backup." -Level "WARNING" -LogFile $LogFile
+# ── Post-Hardening Backup (optional) ─────────────────────────────────────────
+$runPostBackup = Read-Host "Run post-hardening backup? (y/N)"
+if ($runPostBackup -match '^[Yy]') {
+    Write-Log -Message "=== Running Post-Hardening Backup ===" -Level "INFO" -LogFile $LogFile
+    try {
+        $backupModule = "$ScriptRoot/src/modules/11_Backup_Services.ps1"
+        if (Test-Path $backupModule) {
+            & $backupModule -LogFile $LogFile -IsDomainController $global:IsDomainController -Phase "Post"
+        } else {
+            Write-Log -Message "Backup module not found -- skipping post-hardening backup." -Level "WARNING" -LogFile $LogFile
+        }
+    } catch {
+        Write-Log -Message "Post-hardening backup failed: $_" -Level "ERROR" -LogFile $LogFile
     }
-} catch {
-    Write-Log -Message "Post-hardening backup failed: $_" -Level "ERROR" -LogFile $LogFile
+} else {
+    Write-Log -Message "Post-hardening backup skipped by user." -Level "INFO" -LogFile $LogFile
 }
 
 # Encrypt the secrets file if password rotation was run and encryption was deferred

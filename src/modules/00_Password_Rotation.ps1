@@ -120,6 +120,17 @@ if ($IsDomainController) {
     switch ($rotationChoice) {
         "Rotate ALL domain user passwords" {
             Write-Log -Message "Rotating ALL Domain User Passwords..." -Level "INFO" -LogFile $LogFile
+
+            # Ask for password mode: random or common
+            $passwordMode = Select-ArrowMenu -Title "Password mode for domain users" -Options @("Random (unique per user)", "Common (one password for all)")
+            $commonPassword = $null
+            if ($passwordMode -eq "Common (one password for all)") {
+                $secureCommon = Read-ConfirmedPassword -Prompt "Enter common password" -ConfirmPrompt "Confirm common password"
+                $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureCommon)
+                try { $commonPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+                finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+            }
+
             try {
                 Import-Module ActiveDirectory -ErrorAction Stop
 
@@ -137,7 +148,7 @@ if ($IsDomainController) {
 
                 foreach ($user in $users) {
                     try {
-                        $newPassword    = New-RandomPassword -Length 16
+                        $newPassword    = if ($commonPassword) { $commonPassword } else { New-RandomPassword -Length 16 }
                         $securePassword = ConvertTo-SecureString -String $newPassword -AsPlainText -Force
                         Set-ADAccountPassword -Identity $user.SamAccountName -NewPassword $securePassword -Reset
 
@@ -156,6 +167,17 @@ if ($IsDomainController) {
         }
         "Rotate selected domain user accounts" {
             Write-Log -Message "Rotating Selected Domain User Passwords..." -Level "INFO" -LogFile $LogFile
+
+            # Ask for password mode: random or common
+            $passwordMode = Select-ArrowMenu -Title "Password mode for selected domain users" -Options @("Random (unique per user)", "Common (one password for all)")
+            $commonPassword = $null
+            if ($passwordMode -eq "Common (one password for all)") {
+                $secureCommon = Read-ConfirmedPassword -Prompt "Enter common password" -ConfirmPrompt "Confirm common password"
+                $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureCommon)
+                try { $commonPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+                finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+            }
+
             try {
                 Import-Module ActiveDirectory -ErrorAction Stop
 
@@ -178,7 +200,7 @@ if ($IsDomainController) {
                         }
                         foreach ($samAccountName in $selectedUsers) {
                             try {
-                                $newPassword    = New-RandomPassword -Length 16
+                                $newPassword    = if ($commonPassword) { $commonPassword } else { New-RandomPassword -Length 16 }
                                 $securePassword = ConvertTo-SecureString -String $newPassword -AsPlainText -Force
                                 Set-ADAccountPassword -Identity $samAccountName -NewPassword $securePassword -Reset
 
@@ -224,6 +246,17 @@ $builtinExclusions = @("Guest", "DefaultAccount", "WDAGUtilityAccount")
 switch ($localChoice) {
     "Rotate ALL local user passwords" {
         Write-Log -Message "Rotating ALL Local User Passwords..." -Level "INFO" -LogFile $LogFile
+
+        # Ask for password mode: random or common
+        $localPasswordMode = Select-ArrowMenu -Title "Password mode for local users" -Options @("Random (unique per user)", "Common (one password for all)")
+        $commonLocalPassword = $null
+        if ($localPasswordMode -eq "Common (one password for all)") {
+            $secureCommon = Read-ConfirmedPassword -Prompt "Enter common password" -ConfirmPrompt "Confirm common password"
+            $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureCommon)
+            try { $commonLocalPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+            finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+        }
+
         try {
             $localUsers = Get-LocalUser | Where-Object {
                 ($_.Name -notin $builtinExclusions) -and
@@ -232,7 +265,7 @@ switch ($localChoice) {
 
             foreach ($user in $localUsers) {
                 try {
-                    $newPassword    = New-RandomPassword -Length 16
+                    $newPassword    = if ($commonLocalPassword) { $commonLocalPassword } else { New-RandomPassword -Length 16 }
                     $securePassword = ConvertTo-SecureString -String $newPassword -AsPlainText -Force
                     Set-LocalUser -Name $user.Name -Password $securePassword
 
@@ -251,6 +284,17 @@ switch ($localChoice) {
     }
     "Rotate selected local user accounts" {
         Write-Log -Message "Rotating Selected Local User Passwords..." -Level "INFO" -LogFile $LogFile
+
+        # Ask for password mode: random or common
+        $localPasswordMode = Select-ArrowMenu -Title "Password mode for selected local users" -Options @("Random (unique per user)", "Common (one password for all)")
+        $commonLocalPassword = $null
+        if ($localPasswordMode -eq "Common (one password for all)") {
+            $secureCommon = Read-ConfirmedPassword -Prompt "Enter common password" -ConfirmPrompt "Confirm common password"
+            $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureCommon)
+            try { $commonLocalPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+            finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+        }
+
         try {
             $localUsers = Get-LocalUser | Where-Object {
                 $_.Name -notin $builtinExclusions
@@ -267,7 +311,7 @@ switch ($localChoice) {
                 } else {
                     foreach ($userName in $selectedLocalUsers) {
                         try {
-                            $newPassword    = New-RandomPassword -Length 16
+                            $newPassword    = if ($commonLocalPassword) { $commonLocalPassword } else { New-RandomPassword -Length 16 }
                             $securePassword = ConvertTo-SecureString -String $newPassword -AsPlainText -Force
                             Set-LocalUser -Name $userName -Password $securePassword
 

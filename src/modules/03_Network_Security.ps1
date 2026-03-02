@@ -369,13 +369,35 @@ try {
     Set-RegistryValue -Path "$schannelBase\Ciphers\Triple DES 168" -Name "Enabled" -Value 0 -Type DWord
     Write-Log -Message "SChannel ciphers configured (AES only)." -Level "SUCCESS" -LogFile $LogFile
 
-    # --- Hashes: SHA256+ only ---
-    Set-RegistryValue -Path "$schannelBase\Hashes\MD5" -Name "Enabled" -Value 0x0 -Type DWord
-    Set-RegistryValue -Path "$schannelBase\Hashes\SHA" -Name "Enabled" -Value 0x0 -Type DWord
-    Set-RegistryValue -Path "$schannelBase\Hashes\SHA256" -Name "Enabled" -Value 0xffffffff -Type DWord
-    Set-RegistryValue -Path "$schannelBase\Hashes\SHA384" -Name "Enabled" -Value 0xffffffff -Type DWord
-    Set-RegistryValue -Path "$schannelBase\Hashes\SHA512" -Name "Enabled" -Value 0xffffffff -Type DWord
-    Write-Log -Message "SChannel hashes configured (SHA256+ only)." -Level "SUCCESS" -LogFile $LogFile
+    # --- Hashes ---
+    Write-Host ""
+    Write-Host "IMPACT: Disabling SHA-1 (SHA hash) breaks TLS for any certificate or LDAPS connection using SHA-1." -ForegroundColor Yellow
+    Write-Host "  Many LDAP/LDAPS scoring checks and legacy certs rely on SHA-1. Disabling it can break LDAP scoring." -ForegroundColor Yellow
+    Write-Host "  [1] SHA256+ only (disable MD5 and SHA-1) -- strictest, may break LDAPS/scoring" -ForegroundColor Yellow
+    Write-Host "  [2] Disable MD5 only, keep SHA-1 enabled -- RECOMMENDED for compatibility" -ForegroundColor Yellow
+    Write-Host "  [3] Skip hash configuration" -ForegroundColor Yellow
+    $hashChoice = Read-Host "SChannel hash configuration [1/2/3]"
+    switch ($hashChoice) {
+        "1" {
+            Set-RegistryValue -Path "$schannelBase\Hashes\MD5" -Name "Enabled" -Value 0x0 -Type DWord
+            Set-RegistryValue -Path "$schannelBase\Hashes\SHA" -Name "Enabled" -Value 0x0 -Type DWord
+            Set-RegistryValue -Path "$schannelBase\Hashes\SHA256" -Name "Enabled" -Value 0xffffffff -Type DWord
+            Set-RegistryValue -Path "$schannelBase\Hashes\SHA384" -Name "Enabled" -Value 0xffffffff -Type DWord
+            Set-RegistryValue -Path "$schannelBase\Hashes\SHA512" -Name "Enabled" -Value 0xffffffff -Type DWord
+            Write-Log -Message "SChannel hashes configured (SHA256+ only, SHA-1 DISABLED)." -Level "SUCCESS" -LogFile $LogFile
+        }
+        "2" {
+            Set-RegistryValue -Path "$schannelBase\Hashes\MD5" -Name "Enabled" -Value 0x0 -Type DWord
+            Set-RegistryValue -Path "$schannelBase\Hashes\SHA" -Name "Enabled" -Value 0xffffffff -Type DWord
+            Set-RegistryValue -Path "$schannelBase\Hashes\SHA256" -Name "Enabled" -Value 0xffffffff -Type DWord
+            Set-RegistryValue -Path "$schannelBase\Hashes\SHA384" -Name "Enabled" -Value 0xffffffff -Type DWord
+            Set-RegistryValue -Path "$schannelBase\Hashes\SHA512" -Name "Enabled" -Value 0xffffffff -Type DWord
+            Write-Log -Message "SChannel hashes configured (MD5 disabled, SHA-1 kept for compatibility)." -Level "SUCCESS" -LogFile $LogFile
+        }
+        default {
+            Write-Log -Message "Skipping SChannel hash configuration." -Level "WARNING" -LogFile $LogFile
+        }
+    }
 
     # --- Key Exchanges ---
     Set-RegistryValue -Path "$schannelBase\KeyExchangeAlgorithms\Diffie-Hellman" -Name "Enabled" -Value 0xffffffff -Type DWord
@@ -384,27 +406,58 @@ try {
     Set-RegistryValue -Path "$schannelBase\KeyExchangeAlgorithms\PKCS" -Name "Enabled" -Value 0xffffffff -Type DWord
     Write-Log -Message "SChannel key exchange algorithms configured (DH 4096-bit min)." -Level "SUCCESS" -LogFile $LogFile
 
-    # --- Protocols: Disable everything below TLS 1.2 ---
-    $disableProtocols = @(
-        "Multi-Protocol Unified Hello",
-        "PCT 1.0",
-        "SSL 2.0",
-        "SSL 3.0",
-        "TLS 1.0",
-        "TLS 1.1"
-    )
-    foreach ($proto in $disableProtocols) {
-        foreach ($side in @("Client", "Server")) {
-            Set-RegistryValue -Path "$schannelBase\Protocols\$proto\$side" -Name "Enabled" -Value 0 -Type DWord
-            Set-RegistryValue -Path "$schannelBase\Protocols\$proto\$side" -Name "DisabledByDefault" -Value 1 -Type DWord
+    # --- Protocols ---
+    Write-Host ""
+    Write-Host "IMPACT: Disabling TLS 1.0/1.1 may break LDAPS scoring if the scoring engine only supports older TLS." -ForegroundColor Yellow
+    Write-Host "  [1] TLS 1.2 only (disable SSL 2.0/3.0, TLS 1.0, TLS 1.1) -- strictest" -ForegroundColor Yellow
+    Write-Host "  [2] Disable SSL 2.0/3.0 only, keep TLS 1.0/1.1 -- RECOMMENDED for compatibility" -ForegroundColor Yellow
+    Write-Host "  [3] Skip protocol configuration" -ForegroundColor Yellow
+    $protoChoice = Read-Host "SChannel protocol configuration [1/2/3]"
+    switch ($protoChoice) {
+        "1" {
+            $disableProtocols = @(
+                "Multi-Protocol Unified Hello",
+                "PCT 1.0",
+                "SSL 2.0",
+                "SSL 3.0",
+                "TLS 1.0",
+                "TLS 1.1"
+            )
+            foreach ($proto in $disableProtocols) {
+                foreach ($side in @("Client", "Server")) {
+                    Set-RegistryValue -Path "$schannelBase\Protocols\$proto\$side" -Name "Enabled" -Value 0 -Type DWord
+                    Set-RegistryValue -Path "$schannelBase\Protocols\$proto\$side" -Name "DisabledByDefault" -Value 1 -Type DWord
+                }
+            }
+            foreach ($side in @("Client", "Server")) {
+                Set-RegistryValue -Path "$schannelBase\Protocols\TLS 1.2\$side" -Name "Enabled" -Value 0xffffffff -Type DWord
+                Set-RegistryValue -Path "$schannelBase\Protocols\TLS 1.2\$side" -Name "DisabledByDefault" -Value 0 -Type DWord
+            }
+            Write-Log -Message "SChannel protocols configured (TLS 1.2 only)." -Level "SUCCESS" -LogFile $LogFile
+        }
+        "2" {
+            $disableProtocols = @(
+                "Multi-Protocol Unified Hello",
+                "PCT 1.0",
+                "SSL 2.0",
+                "SSL 3.0"
+            )
+            foreach ($proto in $disableProtocols) {
+                foreach ($side in @("Client", "Server")) {
+                    Set-RegistryValue -Path "$schannelBase\Protocols\$proto\$side" -Name "Enabled" -Value 0 -Type DWord
+                    Set-RegistryValue -Path "$schannelBase\Protocols\$proto\$side" -Name "DisabledByDefault" -Value 1 -Type DWord
+                }
+            }
+            foreach ($side in @("Client", "Server")) {
+                Set-RegistryValue -Path "$schannelBase\Protocols\TLS 1.2\$side" -Name "Enabled" -Value 0xffffffff -Type DWord
+                Set-RegistryValue -Path "$schannelBase\Protocols\TLS 1.2\$side" -Name "DisabledByDefault" -Value 0 -Type DWord
+            }
+            Write-Log -Message "SChannel protocols configured (SSL disabled, TLS 1.0/1.1 kept for compatibility)." -Level "SUCCESS" -LogFile $LogFile
+        }
+        default {
+            Write-Log -Message "Skipping SChannel protocol configuration." -Level "WARNING" -LogFile $LogFile
         }
     }
-    # Enable TLS 1.2
-    foreach ($side in @("Client", "Server")) {
-        Set-RegistryValue -Path "$schannelBase\Protocols\TLS 1.2\$side" -Name "Enabled" -Value 0xffffffff -Type DWord
-        Set-RegistryValue -Path "$schannelBase\Protocols\TLS 1.2\$side" -Name "DisabledByDefault" -Value 0 -Type DWord
-    }
-    Write-Log -Message "SChannel protocols configured (TLS 1.2 only)." -Level "SUCCESS" -LogFile $LogFile
 
     # --- Cipher Suite Order ---
     $cipherSuites = "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384," +
@@ -442,9 +495,6 @@ if ($IsDomainController) {
     # --- 10. LDAP & Kerberos Hardening ---
     Write-Log -Message "Applying LDAP & Kerberos Hardening..." -Level "INFO" -LogFile $LogFile
     try {
-        # Enforce LDAP Client Signing
-        Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LDAP" -Name "LDAPClientIntegrity" -Value 2 -Type DWord
-
         # Kerberos Encryption Types (AES + RC4 for compatibility)
         # 2147483644 = AES128 + AES256 + RC4
         Set-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters" -Name "SupportedEncryptionTypes" -Value 2147483644 -Type DWord
@@ -452,8 +502,29 @@ if ($IsDomainController) {
         # CVE-2014-6324 (MS14-068) - Limit Kerberos TGT renewal lifetime
         Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Kdc" -Name "MaxLifetimeForUserTgtRenewal" -Value 10 -Type DWord
 
-        # LDAP Server Integrity (Signing)
-        Set-RegistryValue -Path "HKLM:\System\CurrentControlSet\Services\NTDS\Parameters" -Name "LDAPServerIntegrity" -Value 2 -Type DWord
+        # LDAP Signing (Client & Server)
+        Write-Host "" 
+        Write-Host "IMPACT: Requiring LDAP Signing (value=2) will reject LDAP connections that don't use signing." -ForegroundColor Yellow
+        Write-Host "  Scoring engines and legacy apps that do simple LDAP binds on port 389 will FAIL." -ForegroundColor Yellow
+        Write-Host "  [1] Require LDAP signing (may break scoring/legacy clients)" -ForegroundColor Yellow
+        Write-Host "  [2] Enable LDAP signing (negotiate, don't require) -- RECOMMENDED" -ForegroundColor Yellow
+        Write-Host "  [3] Skip LDAP signing changes" -ForegroundColor Yellow
+        $ldapSignChoice = Read-Host "LDAP signing level [1/2/3]"
+        switch ($ldapSignChoice) {
+            "1" {
+                Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LDAP" -Name "LDAPClientIntegrity" -Value 2 -Type DWord
+                Set-RegistryValue -Path "HKLM:\System\CurrentControlSet\Services\NTDS\Parameters" -Name "LDAPServerIntegrity" -Value 2 -Type DWord
+                Write-Log -Message "LDAP Client & Server signing set to REQUIRED." -Level "SUCCESS" -LogFile $LogFile
+            }
+            "2" {
+                Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LDAP" -Name "LDAPClientIntegrity" -Value 1 -Type DWord
+                Set-RegistryValue -Path "HKLM:\System\CurrentControlSet\Services\NTDS\Parameters" -Name "LDAPServerIntegrity" -Value 1 -Type DWord
+                Write-Log -Message "LDAP Client & Server signing set to NEGOTIATED (compatible)." -Level "SUCCESS" -LogFile $LogFile
+            }
+            default {
+                Write-Log -Message "Skipping LDAP signing configuration." -Level "WARNING" -LogFile $LogFile
+            }
+        }
 
         # LDAP Channel Binding
         Write-Host "IMPACT: Enforcing LDAP Channel Binding breaks legacy LDAP clients/apps that don't support Channel Binding Tokens (CBT) over SSL." -ForegroundColor Yellow
@@ -465,17 +536,25 @@ if ($IsDomainController) {
             Write-Log -Message "Skipping LDAP channel binding enforcement." -Level "WARNING" -LogFile $LogFile
         }
 
-        # Disable Unauthenticated LDAP (dsHeuristics)
-        $DN = ("CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration," + (Get-ADDomain).DistinguishedName)
-        $DirectoryService = Get-ADObject -Identity $DN -Properties dsHeuristics
-        $Heuristic = $DirectoryService.dsHeuristics
-        if (-not $Heuristic) { $Heuristic = "0000000" }
-        if ($Heuristic.Length -ge 7) {
-            $Array = $Heuristic.ToCharArray()
-            $Array[6] = "0"
-            $Heuristic = "$Array".Replace(" ", "")
-            Set-ADObject -Identity $DirectoryService -Replace @{dsHeuristics = $Heuristic}
-            Write-Log -Message "Disabled Anonymous LDAP via dsHeuristics." -Level "SUCCESS" -LogFile $LogFile
+        # Disable Unauthenticated/Anonymous LDAP (dsHeuristics)
+        Write-Host ""
+        Write-Host "IMPACT: Disabling anonymous LDAP via dsHeuristics blocks unauthenticated LDAP queries." -ForegroundColor Yellow
+        Write-Host "  If the scoring engine uses anonymous LDAP binds, this WILL break scoring." -ForegroundColor Yellow
+        $anonLdap = Read-Host "Disable anonymous LDAP via dsHeuristics? [y/n]"
+        if ($anonLdap -eq 'y') {
+            $DN = ("CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration," + (Get-ADDomain).DistinguishedName)
+            $DirectoryService = Get-ADObject -Identity $DN -Properties dsHeuristics
+            $Heuristic = $DirectoryService.dsHeuristics
+            if (-not $Heuristic) { $Heuristic = "0000000" }
+            if ($Heuristic.Length -ge 7) {
+                $Array = $Heuristic.ToCharArray()
+                $Array[6] = "0"
+                $Heuristic = "$Array".Replace(" ", "")
+                Set-ADObject -Identity $DirectoryService -Replace @{dsHeuristics = $Heuristic}
+                Write-Log -Message "Disabled Anonymous LDAP via dsHeuristics." -Level "SUCCESS" -LogFile $LogFile
+            }
+        } else {
+            Write-Log -Message "Skipping anonymous LDAP disable (dsHeuristics unchanged)." -Level "WARNING" -LogFile $LogFile
         }
 
         Write-Log -Message "LDAP & Kerberos hardening applied." -Level "SUCCESS" -LogFile $LogFile
@@ -653,13 +732,6 @@ switch ($smbShareChoice) {
                     }
                 }
                 Write-Host "`n==============================`n" -ForegroundColor Cyan
-
-                $shareLabels = $allShares | ForEach-Object {
-                    $perms = (Get-SmbShareAccess -Name $_.Name -ErrorAction SilentlyContinue |
-                              ForEach-Object { "$($_.AccountName):$($_.AccessRight)" }) -join ", "
-                    if ($perms) { "$($_.Name)  [$($_.Path)]  ($perms)" }
-                    else        { "$($_.Name)  [$($_.Path)]" }
-                }
 
                 Write-Host "Enter share names to REMOVE (comma-separated), or press Enter to skip:" -ForegroundColor Cyan
                 $removeInput = Read-Host "Shares to remove"
