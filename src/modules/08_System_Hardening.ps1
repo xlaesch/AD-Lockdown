@@ -641,7 +641,86 @@ try {
     Write-Log -Message "Failed to configure ELAM: $_" -Level "ERROR" -LogFile $LogFile
 }
 
-# --- 12n. Block PsExec via IFEO ---
+# --- 12n. IFEO Debugger Audit (PROMPTED) ---
+Write-Log -Message "=== Image File Execution Options (IFEO) Audit ===" -Level "INFO" -LogFile $LogFile
+Write-Host "IMPACT: IFEO Debugger entries can hijack process launches. Legitimate uses include debugging tools." -ForegroundColor Yellow
+try {
+    $ifeoBase = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options"
+    $ifeoEntries = @(Get-ChildItem -Path $ifeoBase -ErrorAction SilentlyContinue | ForEach-Object {
+        $dbg = Get-ItemProperty -Path $_.PSPath -Name "Debugger" -ErrorAction SilentlyContinue
+        if ($dbg) {
+            [PSCustomObject]@{
+                Name     = (Split-Path $_.Name -Leaf)
+                Debugger = $dbg.Debugger
+                Path     = $_.PSPath
+            }
+        }
+    })
+
+    if ($ifeoEntries.Count -gt 0) {
+        Write-Host "`nIFEO entries with Debugger value set:" -ForegroundColor Cyan
+        for ($i = 0; $i -lt $ifeoEntries.Count; $i++) {
+            $e = $ifeoEntries[$i]
+            Write-Host "  [$($i + 1)] $($e.Name) -> $($e.Debugger)" -ForegroundColor Yellow
+        }
+        Write-Host ""
+        Write-Host "  [1] Remove ALL IFEO Debugger entries" -ForegroundColor Yellow
+        Write-Host "  [2] Choose which to remove" -ForegroundColor Yellow
+        Write-Host "  [3] Skip" -ForegroundColor Yellow
+        $ifeoChoice = Read-Host "IFEO action [1/2/3]"
+
+        switch ($ifeoChoice) {
+            "1" {
+                foreach ($e in $ifeoEntries) {
+                    try {
+                        Remove-ItemProperty -Path $e.Path -Name "Debugger" -Force -ErrorAction Stop
+                        Write-Log -Message "Removed IFEO Debugger for $($e.Name) (was: $($e.Debugger))" -Level "SUCCESS" -LogFile $LogFile
+                    } catch {
+                        Write-Log -Message "Failed to remove IFEO Debugger for $($e.Name): $_" -Level "ERROR" -LogFile $LogFile
+                    }
+                }
+            }
+            "2" {
+                Write-Host "Enter entry numbers to remove (comma-separated, e.g. 1,3,5), 'all' for all, or 'none' to skip:" -ForegroundColor Cyan
+                $ifeoSelection = Read-Host "Selection"
+
+                $toRemove = @()
+                if ($ifeoSelection -match '^[Aa]ll$') {
+                    $toRemove = $ifeoEntries
+                } elseif ($ifeoSelection -notmatch '^[Nn]one$' -and $ifeoSelection.Trim() -ne '') {
+                    $indices = $ifeoSelection -split ',' | ForEach-Object {
+                        $num = $_.Trim() -as [int]
+                        if ($num -and $num -ge 1 -and $num -le $ifeoEntries.Count) { $num - 1 }
+                    }
+                    $toRemove = $indices | ForEach-Object { $ifeoEntries[$_] }
+                }
+
+                if ($toRemove.Count -gt 0) {
+                    foreach ($e in $toRemove) {
+                        try {
+                            Remove-ItemProperty -Path $e.Path -Name "Debugger" -Force -ErrorAction Stop
+                            Write-Log -Message "Removed IFEO Debugger for $($e.Name) (was: $($e.Debugger))" -Level "SUCCESS" -LogFile $LogFile
+                        } catch {
+                            Write-Log -Message "Failed to remove IFEO Debugger for $($e.Name): $_" -Level "ERROR" -LogFile $LogFile
+                        }
+                    }
+                } else {
+                    Write-Log -Message "IFEO audit complete (no entries selected)." -Level "INFO" -LogFile $LogFile
+                }
+            }
+            default {
+                Write-Log -Message "IFEO audit skipped." -Level "INFO" -LogFile $LogFile
+            }
+        }
+    } else {
+        Write-Host "No IFEO Debugger hijacks found." -ForegroundColor Green
+        Write-Log -Message "IFEO audit complete -- no Debugger entries found." -Level "INFO" -LogFile $LogFile
+    }
+} catch {
+    Write-Log -Message "Failed to enumerate IFEO entries: $_" -Level "ERROR" -LogFile $LogFile
+}
+
+# --- 12o. Block PsExec via IFEO ---
 Write-Log -Message "Blocking PsExec via Image File Execution Options..." -Level "INFO" -LogFile $LogFile
 try {
     Set-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\PSEXESVC.exe" -Name "Debugger" -Value "svchost.exe" -Type String
@@ -708,14 +787,25 @@ try {
     Write-Log -Message "Failed to apply Spectre/Meltdown mitigations: $_" -Level "ERROR" -LogFile $LogFile
 }
 
-# --- 13. PowerShell Constrained Language Mode ---
-Write-Log -Message "Enabling PowerShell Constrained Language Mode..." -Level "INFO" -LogFile $LogFile
-try {
-    # __PSLockdownPolicy=4 enforces Constrained Language Mode system-wide
-    [System.Environment]::SetEnvironmentVariable("__PSLockdownPolicy", "4", "Machine")
-    Write-Log -Message "PowerShell Constrained Language Mode enabled via environment variable (effective on new sessions)." -Level "SUCCESS" -LogFile $LogFile
-} catch {
-    Write-Log -Message "Failed to enable Constrained Language Mode: $_" -Level "ERROR" -LogFile $LogFile
+# --- 14. PowerShell Constrained Language Mode (PROMPTED) ---
+Write-Log -Message "=== PowerShell Constrained Language Mode ===" -Level "INFO" -LogFile $LogFile
+Write-Host "IMPACT: Constrained Language Mode blocks .NET type access, COM objects, Add-Type," -ForegroundColor Yellow
+Write-Host "  and custom classes in ALL new PowerShell sessions system-wide." -ForegroundColor Yellow
+Write-Host "  This WILL restrict admin/IR commands that use .NET calls (e.g. [System.Environment],  " -ForegroundColor Yellow
+Write-Host "  [System.Net.Dns], Get-CimInstance with custom types, etc.)." -ForegroundColor Yellow
+Write-Host "  Basic cmdlets (Get-Process, Stop-Service, Get-NetTCPConnection, etc.) still work." -ForegroundColor Yellow
+Write-Host "  To undo later: [System.Environment]::SetEnvironmentVariable('__PSLockdownPolicy', `$null, 'Machine')" -ForegroundColor Yellow
+$enableCLM = Read-Host "Enable PowerShell Constrained Language Mode? [y/n]"
+if ($enableCLM -eq 'y') {
+    try {
+        # __PSLockdownPolicy=4 enforces Constrained Language Mode system-wide
+        [System.Environment]::SetEnvironmentVariable("__PSLockdownPolicy", "4", "Machine")
+        Write-Log -Message "PowerShell Constrained Language Mode enabled via environment variable (effective on new sessions)." -Level "SUCCESS" -LogFile $LogFile
+    } catch {
+        Write-Log -Message "Failed to enable Constrained Language Mode: $_" -Level "ERROR" -LogFile $LogFile
+    }
+} else {
+    Write-Log -Message "PowerShell Constrained Language Mode skipped per user request." -Level "INFO" -LogFile $LogFile
 }
 
 Write-Log -Message "System Hardening module complete." -Level "SUCCESS" -LogFile $LogFile

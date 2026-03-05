@@ -193,6 +193,25 @@
 \end{itemize}
 \end{tcolorbox}
 
+\begin{tcolorbox}[title=Sysinternals Threat-Hunt + Cleanup Playbooks]
+\footnotesize
+\begin{enumerate}[leftmargin=1.2em, itemsep=2pt, topsep=2pt]
+  \item \textbf{Autoruns64.exe} - Hunt: run \cmd{.\tools\sysinternals\Autoruns64.exe}, enable \textit{Options > Hide Microsoft Entries}, then review \textit{Logon}, \textit{Services}, \textit{Scheduled Tasks}, and \textit{WMI} for unknown, unsigned, or non-essential startup entries. Cleanup: uncheck first to disable, reboot and validate business impact, then delete confirmed malicious entries and remove backing files/tasks/services.
+  \item \textbf{procexp64.exe (Process Explorer)} - Hunt: run \cmd{.\tools\sysinternals\procexp64.exe}, sort by signer/company, inspect abnormal parent-child chains, and verify suspicious binaries with \textit{Check VirusTotal.com}. Cleanup: kill confirmed malicious process trees, then remove persistence (service/task/run key) tied to those PIDs.
+  \item \textbf{Procmon64.exe (Process Monitor)} - Hunt: run \cmd{.\tools\sysinternals\Procmon64.exe} with filters for \textit{RegSetValue}, \textit{CreateFile}, and \textit{Process Create} touching startup paths, task cache, services, WMI repo, and user temp directories. Cleanup: identify exact file/registry artifacts from events and delete/disable them in place.
+  \item \textbf{tcpview64.exe} - Hunt: run \cmd{.\tools\sysinternals\tcpview64.exe}, focus on unexpected established outbound sessions and frequent reconnect behavior to rare remote IPs/ports. Cleanup: terminate owning process from TCPView, then block destination IP/domain via firewall and remove related persistence.
+  \item \textbf{sigcheck64.exe} - Hunt: run \cmd{.\tools\sysinternals\sigcheck64.exe -u -e -vt C:\Windows\System32} and targeted scans on user-writable paths to find unsigned or reputation-poor binaries. Cleanup: quarantine/delete flagged binaries after path/process validation, then re-run sigcheck to confirm no remaining unsigned implants in scope.
+  \item \textbf{strings64.exe} - Hunt: run \cmd{.\tools\sysinternals\strings64.exe <suspect.exe> | findstr /i "http https cmd powershell rundll regsvr mshta pastebin token key"} to surface C2, LOLBIN, and credential artifacts. Cleanup: use extracted IOCs (domains, mutexes, paths) to block, search, and eradicate related components.
+  \item \textbf{streams64.exe} - Hunt: run \cmd{.\tools\sysinternals\streams64.exe -s C:\Users} (and other writable roots) to detect alternate data streams used for hidden payloads. Cleanup: remove malicious ADS with \cmd{streams64.exe -d <path>} and confirm parent file legitimacy before deleting host files.
+  \item \textbf{accesschk64.exe} - Hunt: run \cmd{.\tools\sysinternals\accesschk64.exe -uwcqv "Users" *} and targeted checks on services/registry/program directories to find writable privilege-escalation paths. Cleanup: tighten ACLs (remove broad write permissions), then retest with accesschk to verify exposure is closed.
+  \item \textbf{PsExec64.exe} - Hunt: review Security/System events for remote service execution artifacts (\cmd{psexesvc}), and correlate with unexpected admin logons and lateral movement timing. Cleanup: stop/delete rogue remote services, rotate compromised credentials, and restrict remote admin pathways (SMB/admin shares/firewall).
+  \item \textbf{ADExplorer.exe} - Hunt: run \cmd{.\tools\sysinternals\ADExplorer.exe} and inspect snapshots for newly privileged users/groups, suspicious delegation/SPN changes, and rogue GPO-linked objects. Cleanup: remove unauthorized group memberships/objects, revert malicious attribute changes, and force AD replication checks.
+  \item \textbf{dnsutil.exe} - Hunt: run \cmd{.\tools\sysinternals\dnsutil.exe -t 15} to monitor DNS health and identify repeated failure/abuse conditions during containment. Cleanup: restart affected DNS services, clear poisoned resolver states, and restore known-good server/forwarder settings.
+  \item \textbf{Sysmon64.exe + sysmonconfig.xml} - Hunt: verify sensor status with \cmd{.\tools\sysinternals\Sysmon64.exe -c} and query high-signal events (process create, network connect, image load, WMI, task/service creation) in Event Viewer/SIEM. Cleanup: update config with \cmd{.\tools\sysinternals\Sysmon64.exe -c .\tools\sysinternals\sysmonconfig.xml}, then tune include/exclude rules to reduce noise while preserving malicious behavior visibility.
+\end{enumerate}
+\normalsize
+\end{tcolorbox}
+
 \begin{tcolorbox}[title=Fix DNS (Sysinternals DNSUtil)]
 \begin{itemize}[leftmargin=1.1em, itemsep=1pt, topsep=2pt]
   \item Verify DNS-related services: \cmd{Get-Service DNS,Dnscache -ErrorAction SilentlyContinue | Select Name,Status,StartType}

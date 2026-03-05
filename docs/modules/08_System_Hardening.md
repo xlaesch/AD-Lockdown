@@ -152,24 +152,29 @@ This module applies aggressive host-level hardening across policy reset, persist
 - What it does: Sets `DriverLoadPolicy=3`.
 - Why it exists: Ensures ELAM boot-time driver vetting behavior.
 
-### 12n. Block PsExec via IFEO
+### 12n. IFEO Debugger Audit (Prompted)
+- What it does: Enumerates all Image File Execution Options keys with a `Debugger` value set, displays them, and allows removing all or selectively removing individual entries.
+- Why it exists: IFEO Debugger entries can hijack any process launch; attackers use them for persistence and backdoors. This audit surfaces and cleans them.
+- Options: [1] Remove all IFEO Debugger entries, [2] Choose which to remove (comma-separated), [3] Skip.
+
+### 12o. Block PsExec via IFEO
 - What it does: Sets IFEO debugger for `PSEXESVC.exe` to `svchost.exe`.
 - Why it exists: Disrupts standard PsExec service execution path.
 - Note: Uses IFEO redirect rather than service/firewall-only blocking.
 
-### 12o. Disable Offline Files
+### 12p. Disable Offline Files
 - What it does: Disables `CSC` service startup.
 - Why it exists: Reduces cached-offline data and sync abuse surface.
 
-### 12p. Disable UPnP
+### 12q. Disable UPnP
 - What it does: Sets UPnP mode policy to disabled state.
 - Why it exists: Reduces automatic network service discovery/exposure.
 
-### 12q. Disable DCOM
+### 12r. Disable DCOM
 - What it does: Sets `EnableDCOM="N"`.
 - Why it exists: Reduces COM/RPC remote activation surface.
 
-### 12r. Ease-of-Access Registry Hardening
+### 12s. Ease-of-Access Registry Hardening
 - What it does: Hardens StickyKeys/ToggleKeys/Keyboard Response flags and related logon UI settings.
 - Why it exists: Reduces abuse of ease-of-access and logon UI behaviors.
 
@@ -177,7 +182,7 @@ This module applies aggressive host-level hardening across policy reset, persist
 - What it does: Sets memory-management mitigation keys and VM mitigation baseline version.
 - Why it exists: Enables CPU-side speculative execution mitigation policies.
 
-### 13 (final). PowerShell Constrained Language Mode
-- What it does: Sets machine environment variable `__PSLockdownPolicy=4`.
-- Why it exists: Restricts PowerShell language capabilities in new sessions.
-- Note: Uses environment-level enforcement instead of per-session script logic.
+### 14. PowerShell Constrained Language Mode (Prompted)
+- What it does: Optionally sets machine environment variable `__PSLockdownPolicy=4`.
+- Why it exists: Restricts PowerShell language capabilities in new sessions (blocks .NET types, COM, Add-Type).
+- Note: Now prompted because CLM blocks advanced admin/IR operations (e.g. `[System.Environment]`, `[System.Net.Dns]`, custom classes). Basic cmdlets (Get-Process, Stop-Service, Get-NetTCPConnection, etc.) still work. Undo with `[System.Environment]::SetEnvironmentVariable('__PSLockdownPolicy', $null, 'Machine')`.

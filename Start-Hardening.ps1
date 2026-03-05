@@ -52,6 +52,34 @@ if (-not (Test-Path $LogDir)) {
 # Flag so modules know they're running under the controller
 $global:StartHardeningController = $true
 
+# ── ASCII Banner ─────────────────────────────────────────────────────────────
+function Show-Banner {
+    $banner = @"
+       ___       ___       ___       ___       ___       ___       ___       ___
+      /\  \     /\  \     /\  \     /\  \     /\  \     /\  \     /\  \     /\__\
+     /::\  \   /::\  \   /::\  \   /::\  \   /::\  \   /::\  \   /::\  \   /:/ _/_
+    /:/\:\__\ /:/\:\  \ /:/\:\__\ /\:\:\__\ /:/\:\  \ /:/\:\  \ /\:\:\__\ /:/  /\__\
+    \:\:\/__/ \:\:\:\  \ \:\/:/  / \:\:\/__/ \:\:\:\__\ \:\:\:\  \ \:\ \/__/ \:\ \/__/
+     \::/  /   \:\/:\  \ \::/  /   \::/  /   \:\:\/__/  \:\/:\  \ \:\__\    \:\__\
+      \/__/     \::/__/   \/__/     \/__/     \::/__/    \::/__/   \/__/     \/__/
+       G          O         D         S         W          O         R         K
+
+                                    __         __
+                                   /  \.-"""-./  \
+                                   \    -   -    /
+                                    |   o   o   |
+                                    \  .-'''-.  /
+                                     '-\__Y__/-'
+                                        `---`
+"@
+
+    Write-Host ""
+    Write-Host $banner -ForegroundColor Cyan
+    Write-Host ""
+}
+
+Show-Banner
+
 # ── Domain Controller Detection ──────────────────────────────────────────────
 # ProductType 2 = Domain Controller.  This flag is exposed globally so every
 # module can branch on it without needing extra WMI queries of their own.

@@ -8,7 +8,9 @@
 ![Issues](https://img.shields.io/github/issues/xlaesch/Win-Hardening)
 ![Repo Size](https://img.shields.io/github/repo-size/xlaesch/Win-Hardening)
 
-> A comprehensive Windows hardening automation framework built for the Collegiate Cyber Defense Competition (CCDC). Covers the full stack — OS, network, services, firewall, EDR — with additional Active Directory modules that activate automatically on Domain Controllers.
+> A Windows hardening automation framework built for the Collegiate Cyber Defense Competition (CCDC). Covers the full stack — OS, network, services, firewall, EDR — with additional Active Directory modules that activate automatically on Domain Controllers.
+
+![CLI Screenshot](docs/cli.png)
 
 ---
 
@@ -56,7 +58,7 @@ Each module is a self-contained script in `src/modules/`. Modules that have DC-s
 | 05 | **Audit Logging** | All | Enables LSASS protection, WDigest hardening, advanced audit policies, AD object auditing |
 | 06 | **Windows Defender** | All | Enables real-time protection, sandboxing, cloud protection, clears suspicious exclusions |
 | 07 | **Firewall Hardening** | All | Enables firewall, block-by-default inbound, DC service rules, dynamic Nmap-based rules |
-| 08 | **System Hardening** | All | Mitigates HiveNightmare, closes Sticky Keys backdoor, enforces UAC/DEP/CFG |
+| 08 | **System Hardening** | All | Mitigates HiveNightmare, closes Sticky Keys backdoor, enforces UAC/DEP/CFG, IFEO audit, prompted CLM |
 | 09 | **RDP Security** | All | Enforces NLA, TLS encryption, session limits (keeps RDP enabled for CCDC access) |
 | 10 | **Cert Authority** | DC | Configures/hardens ADCS, removes weak templates, restricts delegation |
 | 11 | **Backup Services** | All | Creates restorable snapshots of GPOs, DNS zones, AD (IFM), SYSVOL, firewall rules |
