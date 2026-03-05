@@ -1,7 +1,8 @@
 # 11_Backup_Services.ps1
-# Comprehensive backup: GPOs, DNS, AD (IFM), SYSVOL, Firewall rules,
-# Scheduled tasks, and running services.
+# Comprehensive backup: GPOs, DNS, AD (IFM), SYSVOL, IIS, CA,
+# Firewall rules, Scheduled tasks, and running services.
 # DC-specific items (GPO, DNS, AD, SYSVOL) are skipped on non-DC machines.
+# IIS and CA backups run only when those roles are installed.
 # Universal items (Firewall, Tasks, Services) run on all machines.
 # Supports a -Phase parameter for automatic pre/post hardening snapshots.
 
@@ -25,7 +26,7 @@ $phaseLabel = "${Phase}_${timestamp}"
 Write-Log -Message "Creating backup directory structure..." -Level "INFO" -LogFile $LogFile
 $backupRoot = "C:\Program Files\Windows Mail_Backup"
 try {
-    $subDirs = @("DNS", "AD", "SYSVOL", "GPO", "Firewall", "Tasks", "Services")
+    $subDirs = @("DNS", "AD", "SYSVOL", "GPO", "IIS", "CA", "Firewall", "Tasks", "Services")
     foreach ($dir in $subDirs) {
         $path = Join-Path $backupRoot $dir
         if (-not (Test-Path $path)) {
@@ -165,10 +166,129 @@ quit
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
+# ROLE-SPECIFIC BACKUPS (IIS, CA — only when installed)
+# ═════════════════════════════════════════════════════════════════════════════
+
+# --- 6. IIS Configuration Backup ---
+$iisInstalled = (Get-WindowsFeature -Name Web-Server -ErrorAction SilentlyContinue).Installed -eq $true
+if ($iisInstalled) {
+    Write-Log -Message "Backing up IIS configuration..." -Level "INFO" -LogFile $LogFile
+    try {
+        $iisBackupPath = Join-Path $backupRoot "IIS\IIS_$phaseLabel"
+        New-Item -Path $iisBackupPath -ItemType Directory -Force | Out-Null
+
+        # Backup applicationHost.config (master IIS config)
+        $appHostConfig = "$env:SystemRoot\System32\inetsrv\config\applicationHost.config"
+        if (Test-Path $appHostConfig) {
+            Copy-Item -Path $appHostConfig -Destination "$iisBackupPath\applicationHost.config" -Force
+            Write-Log -Message "Backed up applicationHost.config" -Level "SUCCESS" -LogFile $LogFile
+        }
+
+        # Backup administration.config and redirection.config
+        foreach ($cfgFile in @("administration.config", "redirection.config")) {
+            $cfgPath = "$env:SystemRoot\System32\inetsrv\config\$cfgFile"
+            if (Test-Path $cfgPath) {
+                Copy-Item -Path $cfgPath -Destination "$iisBackupPath\$cfgFile" -Force
+            }
+        }
+
+        # Backup web.config from each site's physical path
+        Import-Module WebAdministration -ErrorAction Stop
+        $sites = Get-Website -ErrorAction SilentlyContinue
+        $siteCount = 0
+        foreach ($site in $sites) {
+            $siteName = $site.Name -replace '[\\/:*?"<>|]', '_'
+            $siteDir = Join-Path $iisBackupPath "Sites\$siteName"
+            New-Item -Path $siteDir -ItemType Directory -Force | Out-Null
+
+            # Export site config
+            $site | Export-Clixml -Path "$siteDir\site_config.xml" -Force
+
+            # Copy web.config if it exists
+            $physPath = $site.PhysicalPath
+            if ($physPath -and (Test-Path "$physPath\web.config")) {
+                Copy-Item -Path "$physPath\web.config" -Destination "$siteDir\web.config" -Force
+            }
+            $siteCount++
+        }
+
+        # Use appcmd to create a named backup
+        $appcmd = "$env:SystemRoot\System32\inetsrv\appcmd.exe"
+        if (Test-Path $appcmd) {
+            & $appcmd add backup "Backup_$phaseLabel" 2>&1 | Out-Null
+            Write-Log -Message "Created IIS appcmd backup: Backup_$phaseLabel" -Level "SUCCESS" -LogFile $LogFile
+        }
+
+        Write-Log -Message "IIS backup completed: $siteCount sites backed up to $iisBackupPath" -Level "SUCCESS" -LogFile $LogFile
+    }
+    catch {
+        Write-Log -Message "Failed to backup IIS configuration: $_" -Level "ERROR" -LogFile $LogFile
+    }
+} else {
+    Write-Log -Message "Skipping IIS backup -- Web-Server role not installed." -Level "INFO" -LogFile $LogFile
+}
+
+# --- 7. Certificate Authority (CA) Backup ---
+$caInstalled = (Get-WindowsFeature -Name ADCS-Cert-Authority -ErrorAction SilentlyContinue).Installed -eq $true
+if ($caInstalled) {
+    Write-Log -Message "Backing up Certificate Authority..." -Level "INFO" -LogFile $LogFile
+    try {
+        $caBackupPath = Join-Path $backupRoot "CA\CA_$phaseLabel"
+        New-Item -Path $caBackupPath -ItemType Directory -Force | Out-Null
+
+        # Backup CA database and logs using certutil
+        $caDbBackupPath = Join-Path $caBackupPath "Database"
+        New-Item -Path $caDbBackupPath -ItemType Directory -Force | Out-Null
+        $certutilResult = & certutil -backup $caDbBackupPath 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Log -Message "CA database backed up to $caDbBackupPath" -Level "SUCCESS" -LogFile $LogFile
+        } else {
+            Write-Log -Message "certutil -backup returned exit code $LASTEXITCODE. Output: $certutilResult" -Level "WARNING" -LogFile $LogFile
+        }
+
+        # Export CA configuration from registry
+        $caRegPath = "HKLM\SYSTEM\CurrentControlSet\Services\CertSvc\Configuration"
+        $caRegBackup = Join-Path $caBackupPath "CA_Registry_$phaseLabel.reg"
+        & reg export $caRegPath $caRegBackup /y 2>&1 | Out-Null
+        if (Test-Path $caRegBackup) {
+            Write-Log -Message "CA registry configuration exported to $caRegBackup" -Level "SUCCESS" -LogFile $LogFile
+        }
+
+        # Backup CA templates list
+        try {
+            $templates = & certutil -catemplates 2>&1
+            $templatesFile = Join-Path $caBackupPath "CA_Templates_$phaseLabel.txt"
+            $templates | Out-File -FilePath $templatesFile -Encoding UTF8 -Force
+            Write-Log -Message "CA templates list saved to $templatesFile" -Level "SUCCESS" -LogFile $LogFile
+        } catch {
+            Write-Log -Message "Could not export CA templates: $_" -Level "WARNING" -LogFile $LogFile
+        }
+
+        # Backup CA certificate
+        try {
+            $caCertPath = Join-Path $caBackupPath "CACert_$phaseLabel.cer"
+            & certutil -ca.cert $caCertPath 2>&1 | Out-Null
+            if (Test-Path $caCertPath) {
+                Write-Log -Message "CA certificate exported to $caCertPath" -Level "SUCCESS" -LogFile $LogFile
+            }
+        } catch {
+            Write-Log -Message "Could not export CA certificate: $_" -Level "WARNING" -LogFile $LogFile
+        }
+
+        Write-Log -Message "Certificate Authority backup completed at $caBackupPath" -Level "SUCCESS" -LogFile $LogFile
+    }
+    catch {
+        Write-Log -Message "Failed to backup Certificate Authority: $_" -Level "ERROR" -LogFile $LogFile
+    }
+} else {
+    Write-Log -Message "Skipping CA backup -- ADCS-Cert-Authority role not installed." -Level "INFO" -LogFile $LogFile
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
 # UNIVERSAL BACKUPS (all machines)
 # ═════════════════════════════════════════════════════════════════════════════
 
-# --- 6. Firewall Rules Export ---
+# --- 8. Firewall Rules Export ---
 Write-Log -Message "Backing up firewall rules and profiles..." -Level "INFO" -LogFile $LogFile
 try {
     $fwBackupPath = Join-Path $backupRoot "Firewall"
@@ -186,7 +306,7 @@ catch {
     Write-Log -Message "Failed to backup firewall rules: $_" -Level "ERROR" -LogFile $LogFile
 }
 
-# --- 7. Scheduled Tasks Export ---
+# --- 9. Scheduled Tasks Export ---
 Write-Log -Message "Backing up scheduled tasks..." -Level "INFO" -LogFile $LogFile
 try {
     $tasksBackupPath = Join-Path $backupRoot "Tasks"
@@ -201,7 +321,7 @@ catch {
     Write-Log -Message "Failed to backup scheduled tasks: $_" -Level "ERROR" -LogFile $LogFile
 }
 
-# --- 8. Running Services Export ---
+# --- 10. Running Services Export ---
 Write-Log -Message "Backing up service configuration..." -Level "INFO" -LogFile $LogFile
 try {
     $svcBackupPath = Join-Path $backupRoot "Services"
@@ -217,7 +337,7 @@ catch {
     Write-Log -Message "Failed to backup services: $_" -Level "ERROR" -LogFile $LogFile
 }
 
-# --- 9. Backup Summary ---
+# --- 11. Backup Summary ---
 Write-Log -Message "=== Backup Summary (Phase: $Phase) ===" -Level "INFO" -LogFile $LogFile
 try {
     $totalSize = (Get-ChildItem -Path $backupRoot -Recurse -File -ErrorAction SilentlyContinue |

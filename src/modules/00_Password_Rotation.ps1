@@ -109,6 +109,7 @@ if ($IsDomainController) {
     $domainRotationOptions = @(
         "Rotate ALL domain user passwords",
         "Rotate selected domain user accounts",
+        "Rotate all EXCEPT selected domain user accounts",
         "Skip domain password rotation"
     )
 
@@ -218,6 +219,61 @@ if ($IsDomainController) {
                 Write-Log -Message "Failed to load ActiveDirectory module or query users for selected rotation: $_" -Level "ERROR" -LogFile $LogFile
             }
         }
+        "Rotate all EXCEPT selected domain user accounts" {
+            Write-Log -Message "Rotating All Domain User Passwords EXCEPT Selected..." -Level "INFO" -LogFile $LogFile
+
+            # Ask for password mode: random or common
+            $passwordMode = Select-ArrowMenu -Title "Password mode for domain users" -Options @("Random (unique per user)", "Common (one password for all)")
+            $commonPassword = $null
+            if ($passwordMode -eq "Common (one password for all)") {
+                $secureCommon = Read-ConfirmedPassword -Prompt "Enter common password" -ConfirmPrompt "Confirm common password"
+                $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureCommon)
+                try { $commonPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+                finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+            }
+
+            try {
+                Import-Module ActiveDirectory -ErrorAction Stop
+
+                $userList = Get-ADUser -Filter * | Where-Object {
+                    $_.SamAccountName -notmatch $serviceAccountPattern
+                } | Sort-Object SamAccountName
+                if (-not $userList) {
+                    Write-Log -Message "No domain users found." -Level "WARNING" -LogFile $LogFile
+                } else {
+                    $userOptions = $userList | ForEach-Object { $_.SamAccountName }
+                    $excludedUsers = Select-ArrowMenu -Title "Select domain accounts to EXCLUDE from rotation" -Options $userOptions -MultiSelect -AllowSelectAll
+
+                    if (-not $excludedUsers) { $excludedUsers = @() }
+
+                    $usersToRotate = $userList | Where-Object {
+                        ($_.SamAccountName -notin $excludedUsers) -and
+                        ($_.SamAccountName -notmatch $serviceAccountPattern)
+                    }
+
+                    if (-not $usersToRotate -or @($usersToRotate).Count -eq 0) {
+                        Write-Log -Message "No domain users remaining after exclusions." -Level "WARNING" -LogFile $LogFile
+                    } else {
+                        foreach ($user in $usersToRotate) {
+                            try {
+                                $newPassword    = if ($commonPassword) { $commonPassword } else { New-RandomPassword -Length 16 }
+                                $securePassword = ConvertTo-SecureString -String $newPassword -AsPlainText -Force
+                                Set-ADAccountPassword -Identity $user.SamAccountName -NewPassword $securePassword -Reset
+
+                                Write-Log -Message "Password changed for domain user: $($user.SamAccountName)" -Level "SUCCESS" -LogFile $LogFile
+                                Write-Host "$($user.SamAccountName) (Domain),$newPassword"
+                                "$($user.SamAccountName),Domain,$newPassword" | Out-File -FilePath $PasswordFile -Append -Encoding ASCII
+                            } catch {
+                                Write-Log -Message "Failed to set password for domain user $($user.SamAccountName): $_" -Level "ERROR" -LogFile $LogFile
+                            }
+                        }
+                    }
+                }
+            }
+            catch {
+                Write-Log -Message "Failed to load ActiveDirectory module or query users: $_" -Level "ERROR" -LogFile $LogFile
+            }
+        }
         default {
             Write-Log -Message "Skipping domain user password rotation per user request." -Level "INFO" -LogFile $LogFile
         }
@@ -232,6 +288,7 @@ Write-Log -Message "=== Local Account Password Rotation ===" -Level "INFO" -LogF
 $localRotationOptions = @(
     "Rotate ALL local user passwords",
     "Rotate selected local user accounts",
+    "Rotate all EXCEPT selected local user accounts",
     "Skip local password rotation"
 )
 
@@ -327,6 +384,60 @@ switch ($localChoice) {
         }
         catch {
             Write-Log -Message "Failed to enumerate local users for selected rotation: $_" -Level "ERROR" -LogFile $LogFile
+        }
+    }
+    "Rotate all EXCEPT selected local user accounts" {
+        Write-Log -Message "Rotating All Local User Passwords EXCEPT Selected..." -Level "INFO" -LogFile $LogFile
+
+        # Ask for password mode: random or common
+        $localPasswordMode = Select-ArrowMenu -Title "Password mode for local users" -Options @("Random (unique per user)", "Common (one password for all)")
+        $commonLocalPassword = $null
+        if ($localPasswordMode -eq "Common (one password for all)") {
+            $secureCommon = Read-ConfirmedPassword -Prompt "Enter common password" -ConfirmPrompt "Confirm common password"
+            $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureCommon)
+            try { $commonLocalPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+            finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+        }
+
+        try {
+            $localUsers = Get-LocalUser | Where-Object {
+                $_.Name -notin $builtinExclusions
+            } | Sort-Object Name
+
+            if (-not $localUsers) {
+                Write-Log -Message "No local users found." -Level "WARNING" -LogFile $LogFile
+            } else {
+                $userOptions = $localUsers | ForEach-Object { $_.Name }
+                $excludedLocalUsers = Select-ArrowMenu -Title "Select local accounts to EXCLUDE from rotation" -Options $userOptions -MultiSelect -AllowSelectAll
+
+                if (-not $excludedLocalUsers) { $excludedLocalUsers = @() }
+
+                $usersToRotate = $localUsers | Where-Object {
+                    ($_.Name -notin $excludedLocalUsers) -and
+                    ($_.Name -notmatch $serviceAccountPattern)
+                }
+
+                if (-not $usersToRotate -or @($usersToRotate).Count -eq 0) {
+                    Write-Log -Message "No local users remaining after exclusions." -Level "WARNING" -LogFile $LogFile
+                } else {
+                    foreach ($user in $usersToRotate) {
+                        try {
+                            $newPassword    = if ($commonLocalPassword) { $commonLocalPassword } else { New-RandomPassword -Length 16 }
+                            $securePassword = ConvertTo-SecureString -String $newPassword -AsPlainText -Force
+                            Set-LocalUser -Name $user.Name -Password $securePassword
+
+                            Write-Log -Message "Password changed for local user: $($user.Name)" -Level "SUCCESS" -LogFile $LogFile
+                            Write-Host "$($user.Name) (Local),$newPassword"
+                            "$($user.Name),Local,$newPassword" | Out-File -FilePath $PasswordFile -Append -Encoding ASCII
+                        } catch {
+                            Write-Log -Message "Failed to set password for local user $($user.Name): $_" -Level "ERROR" -LogFile $LogFile
+                        }
+                    }
+                }
+            }
+        }
+        catch {
+            Write-Log -Message "Failed to enumerate local users: $_" -Level "ERROR" -LogFile $LogFile
         }
     }
     default {
