@@ -281,6 +281,21 @@ if ($runNmap -match '^(?i)y(es)?$') {
     & "$ScriptRoot/src/functions/Start-NmapBackgroundScan.ps1" -LogFile $LogFile
 }
 
+# ── Pre-Hardening System Audit ────────────────────────────────────────────────
+# Capture full system state (processes, services, firewall, registry, etc.)
+# to a separate file BEFORE any changes. Used for competition inject data.
+Write-Log -Message "=== Running Pre-Hardening System Audit ===" -Level "INFO" -LogFile $LogFile
+try {
+    $auditModule = "$ScriptRoot/src/modules/Invoke-SystemAudit.ps1"
+    if (Test-Path $auditModule) {
+        & $auditModule -LogFile $LogFile -IsDomainController $global:IsDomainController
+    } else {
+        Write-Log -Message "System audit module not found -- skipping." -Level "WARNING" -LogFile $LogFile
+    }
+} catch {
+    Write-Log -Message "System audit failed: $_" -Level "ERROR" -LogFile $LogFile
+}
+
 # Define Available Modules
 # Backup module is controller-managed via dedicated pre/post snapshot steps.
 $AvailableModules = @(
