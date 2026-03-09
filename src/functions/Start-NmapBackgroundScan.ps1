@@ -152,9 +152,22 @@ if ($nmapExe) {
 `$Host.UI.RawUI.WindowTitle = 'Nmap Scan -- localhost (all ports)'
 try {
     `$nmapArgs = $scanArgsLiteral
+    Write-Host 'Starting nmap scan...' -ForegroundColor Cyan
+    Write-Host "Command: '$nmapExe' `$(`$nmapArgs -join ' ')" -ForegroundColor DarkGray
     & '$nmapExe' @nmapArgs
+    `$exitCode = `$LASTEXITCODE
+    if (`$exitCode -ne 0) {
+        Write-Host "``nNmap exited with code `$exitCode" -ForegroundColor Red
+        Write-Host 'Press any key to close...' -ForegroundColor Yellow
+        `$null = `$Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+        exit
+    }
 } catch {
     `$_ | Out-File '$($global:NmapScanXmlPath).err'
+    Write-Host "``nNmap error: `$_" -ForegroundColor Red
+    Write-Host 'Press any key to close...' -ForegroundColor Yellow
+    `$null = `$Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+    exit
 }
 Write-Host '`nNmap scan complete. This window will close in 10 seconds...' -ForegroundColor Green
 Start-Sleep -Seconds 10
