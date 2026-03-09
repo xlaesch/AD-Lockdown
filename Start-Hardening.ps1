@@ -364,21 +364,26 @@ if ($ModulesToExecute | Where-Object { $SecretsModules -contains $_ }) {
     Write-Log -Message "Secrets output will be encrypted after module execution." -Level "INFO" -LogFile $LogFile
 }
 
-# ── Pre-Hardening Backup (first run only) ────────────────────────────────────
+# ── Pre-Hardening Backup (optional) ──────────────────────────────────────────
 $preBackupSentinel = "$ScriptRoot/.pre-backup-done"
 if (-not (Test-Path $preBackupSentinel)) {
-    Write-Log -Message "=== Running Pre-Hardening Backup (first run) ===" -Level "INFO" -LogFile $LogFile
-    try {
-        $backupModule = "$ScriptRoot/src/modules/11_Backup_Services.ps1"
-        if (Test-Path $backupModule) {
-            & $backupModule -LogFile $LogFile -IsDomainController $global:IsDomainController -Phase "Pre"
-            New-Item -Path $preBackupSentinel -ItemType File -Force | Out-Null
-            Write-Log -Message "Pre-hardening backup sentinel created." -Level "INFO" -LogFile $LogFile
-        } else {
-            Write-Log -Message "Backup module not found -- skipping pre-hardening backup." -Level "WARNING" -LogFile $LogFile
+    $runPreBackup = Read-Host "Run pre-hardening backup? (y/N)"
+    if ($runPreBackup -match '^[Yy]') {
+        Write-Log -Message "=== Running Pre-Hardening Backup ===" -Level "INFO" -LogFile $LogFile
+        try {
+            $backupModule = "$ScriptRoot/src/modules/11_Backup_Services.ps1"
+            if (Test-Path $backupModule) {
+                & $backupModule -LogFile $LogFile -IsDomainController $global:IsDomainController -Phase "Pre"
+                New-Item -Path $preBackupSentinel -ItemType File -Force | Out-Null
+                Write-Log -Message "Pre-hardening backup sentinel created." -Level "INFO" -LogFile $LogFile
+            } else {
+                Write-Log -Message "Backup module not found -- skipping pre-hardening backup." -Level "WARNING" -LogFile $LogFile
+            }
+        } catch {
+            Write-Log -Message "Pre-hardening backup failed: $_" -Level "ERROR" -LogFile $LogFile
         }
-    } catch {
-        Write-Log -Message "Pre-hardening backup failed: $_" -Level "ERROR" -LogFile $LogFile
+    } else {
+        Write-Log -Message "Pre-hardening backup skipped by user." -Level "INFO" -LogFile $LogFile
     }
 } else {
     Write-Log -Message "Pre-hardening backup already completed in a previous run -- skipping." -Level "INFO" -LogFile $LogFile
